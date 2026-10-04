@@ -158,7 +158,6 @@ export function Layout({ children }: { children: ReactNode }) {
             <Link to="/rechtliches#bedingungen">Nutzungsbedingungen</Link>
             <Link to="/rechtliches#datenschutz">Datenschutz</Link>
             <Link to="/rechtliches#impressum">Impressum</Link>
-            <a href="https://cardanomix.com">cardanomix.com</a>
           </nav>
         </div>
       </footer>

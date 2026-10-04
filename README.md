@@ -1,7 +1,7 @@
 # CardanoMix P2P
 
-Peer-to-Peer-Marktplatz für ADA gegen EUR, USD, CHF und GBP – gedacht als Ergänzung zu
-[cardanomix.com](https://cardanomix.com), gehostet auf Netlify.
+Peer-to-Peer-Marktplatz für ADA gegen EUR, USD, CHF und GBP – live unter
+[cardanomix.com](https://cardanomix.com), gehostet auf Netlify (Projekt `cardanomix-p2p`).
 
 - **Keine Verwahrung:** Fiat geht direkt an den Verkäufer, ADA direkt in die Wallet des Käufers.
 - **Wallet-Login:** Anmeldung per CIP-30-Wallet und Signatur (CIP-8), ohne Passwort oder E-Mail.
@@ -63,7 +63,8 @@ Ist Chromium nicht über Playwright installiert, den Pfad mit `PW_CHROMIUM_PATH=
 
 3. Deployen. Netlify Database wird beim ersten Deploy automatisch angelegt und die Migrationen werden
    vor der Veröffentlichung eingespielt.
-4. Eigene Domain, z. B. `p2p.cardanomix.com`, unter *Domain management* hinzufügen.
+4. Domain unter *Domain management* hinzufügen. `cardanomix.com` ist eingerichtet: A-Record
+   `cardanomix.com → 75.2.60.5`, CNAME `www → cardanomix-p2p.netlify.app`, Zertifikat über Let's Encrypt.
 
 ## Vor dem öffentlichen Start
 

@@ -1,6 +1,6 @@
 # CardanoMix P2P – Plan
 
-Peer-to-Peer-Marktplatz für ADA gegen Fiat (EUR, USD, CHF, GBP) als Ergänzung zu
+Peer-to-Peer-Marktplatz für ADA gegen Fiat (EUR, USD, CHF, GBP) auf
 cardanomix.com. Die Plattform verwahrt **keine** Coins und kein Geld: Käufer und
 Verkäufer zahlen direkt aneinander, die Plattform bringt sie zusammen, führt den
 Handel Schritt für Schritt und prüft die ADA-Überweisung auf der Blockchain.
@@ -70,7 +70,7 @@ Schutzregeln:
    eines kompletten Trades mit zwei Mock-Wallets.
 5. GitHub-Repository `cardanomix-p2p` anlegen und pushen.
 6. Netlify-Projekt `cardanomix-p2p`: `SESSION_SECRET` setzen, deployen, live prüfen.
-7. Subdomain `p2p.cardanomix.com` im Netlify-Projekt hinterlegen (Domain-Einstellungen).
+7. Domain `cardanomix.com` im Netlify-Projekt hinterlegen (Domain-Einstellungen).
 
 ## Konfiguration (Umgebungsvariablen)
 
