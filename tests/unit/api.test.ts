@@ -11,6 +11,7 @@ describe("Öffentliche Endpunkte", () => {
     expect((await api.call("GET", "/api/gibts-nicht")).status).toBe(404);
     expect((await api.call("DELETE", "/api/config")).status).toBe(405);
     expect((await api.call("GET", "/api/offers/keine-uuid")).status).toBe(404);
+    expect((await api.call("GET", "/api/health")).body).toEqual({ ok: true, database: true, login: true, network: "mainnet" });
   });
 });
 
@@ -77,6 +78,9 @@ describe("Anmeldung mit Wallet", () => {
     const signed = wallet.signData(wallet.rewardAddressHex, utf8ToHex(challenge.body.message));
     const result = await api.call("POST", "/api/auth/login", { body: { nonce: challenge.body.nonce, ...signed } });
     expect(result.status).toBe(503);
+    const health = await api.call("GET", "/api/health");
+    expect(health.status).toBe(503);
+    expect(health.body).toMatchObject({ ok: false, database: true, login: false });
   });
 
   it("ändert den Anzeigenamen und verhindert Dubletten", async () => {

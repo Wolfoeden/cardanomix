@@ -55,7 +55,7 @@ Ist Chromium nicht über Playwright installiert, den Pfad mit `PW_CHROMIUM_PATH=
 
    | Variable | Pflicht | Zweck |
    | --- | --- | --- |
-   | `SESSION_SECRET` | ja | Mindestens 32 zufällige Zeichen, signiert die Sitzungs-Cookies |
+   | `SESSION_SECRET` | ja | Mindestens 32 zufällige Zeichen, signiert die Sitzungs-Cookies. Als Secret für den Kontext *Production* anlegen – mit „alle Kontexte“ wurde das Secret nicht übernommen |
    | `CARDANO_NETWORK` | nein | `mainnet` (Standard) oder `preprod` zum Testen |
    | `ADMIN_STAKE_ADDRESSES` | nein | Kommagetrennte Stake-Adressen (`stake1…`) der Moderatoren |
    | `COINGECKO_API_KEY` | nein | Demo-Key gegen Rate-Limits der Kursabfrage |
@@ -63,7 +63,9 @@ Ist Chromium nicht über Playwright installiert, den Pfad mit `PW_CHROMIUM_PATH=
 
 3. Deployen. Netlify Database wird beim ersten Deploy automatisch angelegt und die Migrationen werden
    vor der Veröffentlichung eingespielt.
-4. Domain unter *Domain management* hinzufügen. `cardanomix.com` ist eingerichtet: A-Record
+4. Prüfen: `https://<domain>/api/health` muss `{"ok":true,"database":true,"login":true,…}` liefern.
+   `login: false` heißt, dass `SESSION_SECRET` in der Function nicht ankommt (Variable fehlt oder kein neuer Deploy).
+5. Domain unter *Domain management* hinzufügen. `cardanomix.com` ist eingerichtet: A-Record
    `cardanomix.com → 75.2.60.5`, CNAME `www → cardanomix-p2p.netlify.app`, Zertifikat über Let's Encrypt.
 
 ## Vor dem öffentlichen Start

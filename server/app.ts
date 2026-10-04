@@ -92,6 +92,19 @@ route("GET", "/api/config", async ({ ctx }) => {
   return json(body);
 });
 
+/** Betriebsstatus ohne Geheimnisse: Ist die Datenbank erreichbar und der Login eingerichtet? */
+route("GET", "/api/health", async ({ ctx }) => {
+  let database = false;
+  try {
+    await ctx.db.query("select 1");
+    database = true;
+  } catch {
+    database = false;
+  }
+  const login = Boolean(ctx.config.sessionSecret);
+  return json({ ok: database && login, database, login, network: ctx.config.network }, { status: database && login ? 200 : 503 });
+});
+
 route("GET", "/api/prices", async ({ ctx }) =>
   json(await ctx.prices.get(), {
     headers: {
