@@ -5,7 +5,10 @@ export interface Cip30Api {
   getChangeAddress(): Promise<string>;
   getRewardAddresses(): Promise<string[]>;
   getUsedAddresses(): Promise<string[]>;
+  getUtxos(amount?: string, paginate?: { page: number; limit: number }): Promise<string[] | null | undefined>;
   signData(address: string, payload: string): Promise<{ signature: string; key: string }>;
+  /** Gibt das Witness-Set (CBOR-Hex) zurück; `partialSign` erlaubt Transaktionen, die noch weitere Signaturen brauchen. */
+  signTx(tx: string, partialSign?: boolean): Promise<string>;
 }
 
 interface Cip30Wallet {
@@ -77,6 +80,26 @@ export function walletErrorMessage(error: unknown, fallback: string): string {
     if (message) return message;
   }
   return fallback;
+}
+
+let active: { key: string; api: Cip30Api } | null = null;
+
+export function setActiveWallet(key: string, api: Cip30Api): void {
+  active = { key, api };
+}
+
+export function clearActiveWallet(): void {
+  active = null;
+}
+
+/** Die verbundene Wallet; nach einem Neuladen wird die zuletzt genutzte erneut verbunden. */
+export async function activeWalletApi(): Promise<Cip30Api> {
+  if (active) return active.api;
+  const key = lastWallet();
+  if (!key) throw new Error("Bitte verbinde zuerst deine Wallet (oben rechts).");
+  const api = await enableWallet(key);
+  active = { key, api };
+  return api;
 }
 
 const LAST_WALLET_KEY = "cmx:last-wallet";

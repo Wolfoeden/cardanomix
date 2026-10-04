@@ -32,10 +32,11 @@ export type OfferSide = (typeof OFFER_SIDES)[number];
 export const OFFER_STATUSES = ["active", "paused", "closed"] as const;
 export type OfferStatus = (typeof OFFER_STATUSES)[number];
 
-export const TRADE_STATUSES = ["awaiting_payment", "paid", "completed", "cancelled", "disputed"] as const;
+export const TRADE_STATUSES = ["awaiting_escrow", "awaiting_payment", "paid", "completed", "cancelled", "disputed"] as const;
 export type TradeStatus = (typeof TRADE_STATUSES)[number];
 
 export const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
+  awaiting_escrow: "Wartet auf Treuhand",
   awaiting_payment: "Wartet auf Zahlung",
   paid: "Als bezahlt markiert",
   completed: "Abgeschlossen",
@@ -54,5 +55,8 @@ export const NEW_USER_TRADE_THRESHOLD = 3;
 export const NEW_USER_MAX_FIAT_CENTS = 300_00;
 /** Gleichzeitig offene Trades pro Konto als Käufer- oder Verkäuferseite, die man selbst gestartet hat. */
 export const MAX_OPEN_TRADES_PER_TAKER = 3;
+export const ESCROW_STATUSES = ["pending", "funded", "releasing", "released", "refunding", "refunded"] as const;
+export type EscrowStatus = (typeof ESCROW_STATUSES)[number];
+
 /** Gnadenfrist nach Ablauf der Zahlungsfrist, bevor ein Handel automatisch abgebrochen wird. */
 export const AUTO_CANCEL_GRACE_MIN = 15;

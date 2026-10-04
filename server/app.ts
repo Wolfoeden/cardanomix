@@ -4,6 +4,16 @@ import { parseFiatToCents } from "../shared/money";
 import type { ConfigResponse, MarketStats, UserProfileResponse } from "../shared/types";
 import { createChallenge, login, loginSchema, viewerFromRequest } from "./auth";
 import { networkId } from "./config";
+import {
+  depositSubmitSchema,
+  depositTxSchema,
+  payoutSubmitSchema,
+  payoutTxSchema,
+  prepareDeposit,
+  preparePayout,
+  submitDeposit,
+  submitPayout,
+} from "./escrow/service";
 import { isUniqueViolation, toIso, UUID_RE, type AppContext } from "./context";
 import {
   assertSameOrigin,
@@ -102,7 +112,9 @@ route("GET", "/api/health", async ({ ctx }) => {
     database = false;
   }
   const login = Boolean(ctx.config.sessionSecret);
-  return json({ ok: database && login, database, login, network: ctx.config.network }, { status: database && login ? 200 : 503 });
+  const escrow = Boolean(ctx.config.arbiterSecret);
+  const ok = database && login && escrow;
+  return json({ ok, database, login, escrow, network: ctx.config.network }, { status: ok ? 200 : 503 });
 });
 
 route("GET", "/api/prices", async ({ ctx }) =>
@@ -280,6 +292,36 @@ route("POST", "/api/trades/:tradeId/release", async ({ request, params, ctx, req
   const user = await requireViewer();
   const input = await readJson(request, releaseSchema);
   return json(await releaseTrade(ctx, user, params.tradeId, input.txHash));
+});
+
+// --- Treuhand ------------------------------------------------------------------
+
+route("POST", "/api/trades/:tradeId/escrow/check", async ({ params, ctx, requireViewer }) =>
+  json(await getTradeDetail(ctx, await requireViewer(), params.tradeId, 0, true)),
+);
+
+route("POST", "/api/trades/:tradeId/escrow/deposit-tx", async ({ request, params, ctx, requireViewer }) => {
+  const user = await requireViewer();
+  const input = await readJson(request, depositTxSchema);
+  return json(await prepareDeposit(ctx, user, params.tradeId, input));
+});
+
+route("POST", "/api/trades/:tradeId/escrow/deposit", async ({ request, params, ctx, requireViewer }) => {
+  const user = await requireViewer();
+  const input = await readJson(request, depositSubmitSchema);
+  return json(await submitDeposit(ctx, user, params.tradeId, input));
+});
+
+route("POST", "/api/trades/:tradeId/escrow/payout-tx", async ({ request, params, ctx, requireViewer }) => {
+  const user = await requireViewer();
+  const input = await readJson(request, payoutTxSchema);
+  return json(await preparePayout(ctx, user, params.tradeId, input.kind));
+});
+
+route("POST", "/api/trades/:tradeId/escrow/payout", async ({ request, params, ctx, requireViewer }) => {
+  const user = await requireViewer();
+  const input = await readJson(request, payoutSubmitSchema);
+  return json(await submitPayout(ctx, user, params.tradeId, input));
 });
 
 route("POST", "/api/trades/:tradeId/dispute", async ({ request, params, ctx, requireViewer }) => {

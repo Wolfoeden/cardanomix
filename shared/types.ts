@@ -1,4 +1,4 @@
-import type { Fiat, OfferSide, OfferStatus, PaymentMethod, TradeStatus } from "./constants";
+import type { EscrowStatus, Fiat, OfferSide, OfferStatus, PaymentMethod, TradeStatus } from "./constants";
 
 export type CardanoNetwork = "mainnet" | "preprod";
 
@@ -50,13 +50,50 @@ export interface Offer {
 export type TradeRole = "buyer" | "seller" | "admin";
 
 export type TradeAction =
+  | "fund_escrow"
   | "mark_paid"
   | "cancel"
   | "release"
+  | "claim"
+  | "refund"
   | "confirm_receipt"
   | "dispute"
   | "rate"
   | "resolve";
+
+/** Treuhand eines Handels; alles davon ist auf der Blockchain nachprüfbar. */
+export interface Escrow {
+  address: string;
+  status: EscrowStatus;
+  /** Zu hinterlegen: Handelsmenge plus Gebührenpuffer */
+  requiredLovelace: number;
+  fundedLovelace: number;
+  depositDeadline: string | null;
+  /** Ab diesem Zeitpunkt kann der Verkäufer die ADA ohne CardanoMix zurückholen. */
+  refundAfter: string;
+  /** Native Script als CBOR-Hex */
+  script: string;
+  depositTxHash: string | null;
+  payoutTxHash: string | null;
+  payoutKind: "release" | "refund" | null;
+}
+
+export interface PayoutPreview {
+  kind: "release" | "refund";
+  txHex: string;
+  toAddress: string | null;
+  toLovelace: number;
+  changeAddress: string;
+  changeLovelace: number;
+  fee: number;
+}
+
+export interface DepositPreview {
+  txHex: string;
+  lovelace: number;
+  fee: number;
+  escrowAddress: string;
+}
 
 export interface TradeParty {
   id: string;
@@ -104,6 +141,8 @@ export interface Trade {
   role: TradeRole;
   actions: TradeAction[];
   ratings: Rating[];
+  /** null bei älteren Trades ohne Treuhand */
+  escrow: Escrow | null;
 }
 
 export interface TradeSummary {

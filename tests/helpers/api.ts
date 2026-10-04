@@ -3,47 +3,27 @@ import type { AppConfig } from "../../server/config";
 import type { AppContext } from "../../server/context";
 import { createPgliteDb } from "../../dev/pglite";
 import { fakePriceSource } from "../../dev/fakes";
+import { FakeLedger } from "../../dev/fake-ledger";
 import { createTestWallet, utf8ToHex, type TestWallet } from "./wallet";
 
 export const ORIGIN = "https://p2p.example.test";
-
-export interface KoiosTx {
-  hash: string;
-  address: string;
-  lovelace: number;
-  timestamp: number;
-}
+export const ADA = 1_000_000;
 
 export async function createTestApi(overrides: Partial<AppConfig> = {}) {
   const { db, pg } = await createPgliteDb();
   let now = new Date("2026-10-01T12:00:00Z");
-  const chain = new Map<string, KoiosTx>();
+  const ledger = new FakeLedger("mainnet", () => now);
   const ctx: AppContext = {
     db,
     config: {
       sessionSecret: "test-secret-test-secret-test-secret-123",
+      arbiterSecret: "schlichter-geheimnis-fuer-tests-0123456789",
       network: "mainnet",
       adminIdentities: new Set(),
       ...overrides,
     },
     prices: fakePriceSource(),
-    fetch: async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { _tx_hashes: string[] };
-      const txs = body._tx_hashes.flatMap((hash) => {
-        const tx = chain.get(hash);
-        return tx
-          ? [
-              {
-                tx_hash: hash,
-                block_height: 1,
-                tx_timestamp: tx.timestamp,
-                outputs: [{ payment_addr: { bech32: tx.address }, value: String(tx.lovelace) }],
-              },
-            ]
-          : [];
-      });
-      return Response.json(txs);
-    },
+    fetch: ledger.fetch,
     now: () => now,
   };
   const handle = createApp(ctx);
@@ -79,16 +59,52 @@ export async function createTestApi(overrides: Partial<AppConfig> = {}) {
     return { cookie, user: result.body.user, wallet };
   }
 
+  type Party = { cookie: string; wallet: TestWallet };
+
+  /** Verkäufer hinterlegt über den Wallet-Ablauf (UTxOs → Server baut → Wallet signiert → Server reicht ein). */
+  async function deposit(seller: Party, tradeId: string) {
+    if (ledger.balance(seller.wallet.baseAddress) < 1_000 * ADA) ledger.fund(seller.wallet.baseAddress, 5_000 * ADA);
+    const prepared = await call("POST", `/api/trades/${tradeId}/escrow/deposit-tx`, {
+      cookie: seller.cookie,
+      body: {
+        utxos: ledger.utxosAt(seller.wallet.baseAddress).map((utxo) => utxo.outputHex),
+        changeAddress: seller.wallet.baseAddressHex,
+      },
+    });
+    if (prepared.status !== 200) return prepared;
+    const submitted = await call("POST", `/api/trades/${tradeId}/escrow/deposit`, {
+      cookie: seller.cookie,
+      body: { tx: prepared.body.txHex, witnessSet: seller.wallet.signTx(prepared.body.txHex) },
+    });
+    if (submitted.status !== 200) return submitted;
+    return call("POST", `/api/trades/${tradeId}/escrow/check`, { cookie: seller.cookie });
+  }
+
+  /** Auszahlung: Server baut, Wallet signiert, Server signiert als Schlichter mit und reicht ein. */
+  async function payout(party: Party, tradeId: string, kind: "release" | "refund", signer: TestWallet = party.wallet) {
+    const prepared = await call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, { cookie: party.cookie, body: { kind } });
+    if (prepared.status !== 200) return prepared;
+    return call("POST", `/api/trades/${tradeId}/escrow/payout`, {
+      cookie: party.cookie,
+      body: { witnessSet: signer.signTx(prepared.body.txHex) },
+    });
+  }
+
   return {
     ctx,
     pg,
+    ledger,
     call,
     login,
-    chain,
+    deposit,
+    payout,
     setNow: (date: Date) => {
       now = date;
     },
     getNow: () => now,
+    advance: (minutes: number) => {
+      now = new Date(now.getTime() + minutes * 60_000);
+    },
   };
 }
 

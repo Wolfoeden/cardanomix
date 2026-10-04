@@ -82,11 +82,51 @@ Schutzregeln:
 | `COINGECKO_API_KEY` | Optional, Demo-Key gegen Rate-Limits |
 | `KOIOS_API_TOKEN` | Optional, Koios-Token für höhere Limits |
 
-## Phase 2 (nach dem MVP)
+## Phase 2: Treuhand für die Krypto-Seite (in Umsetzung)
 
-- Treuhand ohne Verwahrung: 2-von-3-Multisig als Native Script (Käufer, Verkäufer,
-  Schlichter). Verkäufer hinterlegt ADA vorab, Freigabe braucht zwei Signaturen.
-  Erst nach Tests auf Preprod und externem Review live schalten.
+Entscheidung: Die Treuhand hält nur die ADA. Den Fiat-Eingang bestätigt der Verkäufer per
+Button, danach werden die ADA an den Käufer ausgelöst.
+
+**Treuhand-Adresse pro Handel** (Native Script, kein Plutus):
+
+```
+any [
+  atLeast 2 [ Verkäufer, Käufer, CardanoMix-Schlichter ],
+  all [ Verkäufer, nach Slot (Handelsbeginn + 14 Tage) ]
+]
+```
+
+- Schlüssel von Käufer und Verkäufer: Zahlungsschlüssel ihrer Wallet-Adressen.
+- Schlichter-Schlüssel wird pro Handel aus `ESCROW_ARBITER_SECRET` abgeleitet
+  (HMAC-SHA256 über die Handels-ID) – dadurch ist jede Treuhand-Adresse einzigartig.
+- CardanoMix allein kann nichts bewegen. Fällt CardanoMix aus, holt der Verkäufer die ADA
+  nach 14 Tagen allein zurück.
+
+**Ablauf**
+
+```
+Handel startet           → awaiting_escrow  (Verkäufer hinterlegt Menge + 2 ADA Gebührenpuffer)
+Hinterlegung bestätigt   → awaiting_payment (erst jetzt zahlt der Käufer)
+„Ich habe bezahlt“       → paid
+„Zahlung erhalten – ADA freigeben“ (Verkäufer signiert, CardanoMix signiert mit)
+                         → completed, ADA gehen an den Käufer, Rest an den Verkäufer
+Abbruch/Frist abgelaufen → cancelled, Verkäufer holt die ADA zurück (Verkäufer + CardanoMix)
+Streitfall               → Moderation entscheidet; Begünstigter holt die ADA ab (+ CardanoMix)
+```
+
+- Transaktionen baut der Server mit der Cardano-Referenzbibliothek (CSL); Wallets signieren
+  per CIP-30 `signTx`. Vor jeder Signatur zeigt die Oberfläche Empfänger, Beträge und Gebühr.
+- Der Server signiert als Schlichter nur, wenn der Handelsstatus die Auszahlung erlaubt,
+  und nur Transaktionen, die er selbst gebaut hat.
+- Hinterlegung und Auszahlung werden über Koios auf der Blockchain geprüft.
+- Bestehende Trades ohne Treuhand laufen im alten Ablauf weiter.
+
+**Vor breitem Einsatz:** Durchlauf auf Preprod bzw. mit Kleinstbeträgen, Test der gängigen
+Wallets (Eternl, Lace, Vespr, Yoroi, Typhon), externes Review.
+
+## Später
+
+- Atomarer Tausch Cardano-Asset gegen Cardano-Asset (eine gemeinsame Transaktion).
 - Native Tokens (z. B. USDM, DJED, iUSD, SNEK) zusätzlich zu ADA.
 - Benachrichtigungen (E-Mail/Telegram) bei neuen Trades und Nachrichten.
 - Verifizierte Händler, Mehrsprachigkeit (EN).

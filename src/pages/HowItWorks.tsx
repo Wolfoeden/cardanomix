@@ -6,16 +6,18 @@ import { useDocumentTitle } from "../hooks";
 
 const buyerSteps = [
   { title: "Angebot wählen", text: "Im Marktplatz unter „ADA kaufen“ ein Angebot mit passendem Preis und passender Zahlungsart auswählen." },
-  { title: "Handel starten", text: "Betrag eingeben und starten. Die ADA-Menge wird im Angebot für dich reserviert, die Zahlungsfrist läuft." },
+  { title: "Handel starten", text: "Betrag eingeben und starten. Die ADA-Menge wird im Angebot für dich reserviert." },
+  { title: "Auf die Treuhand warten", text: "Der Verkäufer legt die ADA in eine Treuhand auf der Blockchain. Erst wenn sie dort liegen, zahlst du." },
   { title: "Bezahlen", text: "Zahlungsdaten im Chat erhalten, genau den angezeigten Betrag überweisen und „Ich habe bezahlt“ klicken." },
-  { title: "ADA erhalten", text: "Der Verkäufer sendet die ADA an deine Wallet. Die Plattform prüft die Transaktion auf der Blockchain." },
+  { title: "ADA erhalten", text: "Bestätigt der Verkäufer den Eingang, gehen die ADA direkt aus der Treuhand in deine Wallet." },
 ];
 
 const sellerSteps = [
   { title: "Angebot erstellen", text: "Preis (fest oder Marktpreis ± %), Menge, Limits und Zahlungsarten festlegen." },
-  { title: "Zahlungsdaten teilen", text: "Startet jemand einen Handel, teilst du im Chat, wohin gezahlt werden soll." },
-  { title: "Eingang prüfen", text: "Erst wenn das Geld wirklich auf deinem Konto ist, sendest du die ADA an die angezeigte Käuferadresse." },
-  { title: "Tx-Hash eintragen", text: "Die Plattform prüft Betrag und Empfänger auf der Blockchain und schließt den Handel ab." },
+  { title: "ADA hinterlegen", text: "Startet jemand einen Handel, legst du die ADA per Wallet-Klick in die Treuhand (plus 2 ADA Gebührenpuffer)." },
+  { title: "Zahlungsdaten teilen", text: "Im Chat teilst du, wohin gezahlt werden soll." },
+  { title: "Eingang prüfen", text: "Erst wenn das Geld wirklich auf deinem Konto ist, klickst du „Zahlung erhalten – ADA freigeben“." },
+  { title: "Fertig", text: "Die ADA gehen an den Käufer, der Rest des Gebührenpuffers zurück an dich." },
 ];
 
 export function HowItWorksPage() {
@@ -25,8 +27,8 @@ export function HowItWorksPage() {
       <div className="narrow">
         <h1>So funktioniert CardanoMix P2P</h1>
         <p className="lead muted">
-          Käufer und Verkäufer handeln direkt miteinander. CardanoMix verwahrt weder ADA noch Geld – die Plattform bringt
-          euch zusammen, führt durch den Handel und prüft die ADA-Zahlung auf der Blockchain.
+          Käufer und Verkäufer handeln direkt miteinander. Die ADA liegen während des Handels in einer Treuhand auf der
+          Blockchain, das Geld überweist der Käufer direkt an den Verkäufer. CardanoMix allein kann die ADA nie bewegen.
         </p>
       </div>
 
@@ -68,10 +70,10 @@ export function HowItWorksPage() {
           </div>
           <div className="feature">
             <ChainIcon size={22} />
-            <h3>Prüfung auf der Blockchain</h3>
+            <h3>Treuhand auf der Blockchain</h3>
             <p className="muted">
-              Ein Handel gilt erst als abgeschlossen, wenn die Transaktion bestätigt ist und genug ADA an die Käuferadresse
-              gehen – oder der Käufer den Erhalt bestätigt.
+              Jeder Handel bekommt eine eigene Treuhand-Adresse. Auszahlen geht nur mit 2 von 3 Unterschriften – Verkäufer,
+              Käufer, CardanoMix. Nach 14 Tagen kann der Verkäufer die ADA auch ohne CardanoMix zurückholen.
             </p>
           </div>
           <div className="feature">
@@ -107,20 +109,21 @@ export function HowItWorksPage() {
           <div className="card">
             <h3 className="buy-text">Abgesichert</h3>
             <ul className="tips">
+              <li>Der Käufer zahlt erst, wenn die ADA nachweisbar in der Treuhand liegen.</li>
+              <li>Freigabe nur mit Signatur des Verkäufers (oder nach Entscheidung der Moderation) – CardanoMix allein kann nichts bewegen.</li>
+              <li>Fällt CardanoMix aus, holt der Verkäufer die ADA nach 14 Tagen allein zurück.</li>
               <li>Anmeldung nur mit dem Schlüssel deiner Wallet – ohne Passwort, das gestohlen werden kann.</li>
-              <li>Die ADA-Zahlung wird auf der Blockchain geprüft: Betrag, Empfänger und Zeitpunkt müssen stimmen.</li>
-              <li>Jede Transaktion kann nur für einen Handel verwendet werden.</li>
-              <li>Zahlungsfristen, Abbruch und Rückgabe der reservierten Menge laufen automatisch.</li>
             </ul>
           </div>
           <div className="card">
             <h3 className="sell-text">Nicht abgesichert</h3>
             <ul className="tips">
               <li>
-                <strong>Keine Treuhand:</strong> Der Käufer zahlt zuerst. Liefert der Verkäufer nicht, kann die Moderation das
-                Konto sperren, aber kein Geld zurückholen.
+                <strong>Die Fiat-Zahlung</strong> sieht die Blockchain nicht. Ob das Geld angekommen ist, bestätigt der Verkäufer;
+                im Streitfall entscheidet die Moderation anhand der Belege.
               </li>
               <li>Rückbuchungen von Banküberweisungen trägt der Verkäufer.</li>
+              <li>Im Streitfall vertraust du der Entscheidung der Moderation; sie signiert die Auszahlung mit.</li>
               <li>Eine Wallet beweist Kontrolle über einen Schlüssel, nicht die Identität einer Person.</li>
             </ul>
           </div>

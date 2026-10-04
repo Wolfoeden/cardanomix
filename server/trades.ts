@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   AUTO_CANCEL_GRACE_MIN,
@@ -7,64 +8,53 @@ import {
   NEW_USER_TRADE_THRESHOLD,
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABEL,
-  type Fiat,
-  type PaymentMethod,
-  type TradeStatus,
 } from "../shared/constants";
 import { fiatCentsFor, formatAda, formatFiat, lovelaceFor, parseAdaToLovelace, parseFiatToCents } from "../shared/money";
 import type {
   DisputeSummary,
+  Escrow,
   Rating,
   ReleaseResponse,
   Trade,
-  TradeAction,
   TradeDetailResponse,
   TradeMessage,
   TradeSummary,
 } from "../shared/types";
+import { parseAddress } from "./cardano/address";
 import { checkPayment } from "./cardano/koios";
 import { isUniqueViolation, toIso, toIsoOrNull, type AppContext } from "./context";
 import type { Queryable } from "./db";
 import { badRequest, conflict, forbidden, HttpError, notFound } from "./http";
+import {
+  arbiterKey,
+  ESCROW_DEPOSIT_WINDOW_MIN,
+  ESCROW_FEE_BUFFER_LOVELACE,
+  ESCROW_REFUND_DAYS,
+  escrowAddress,
+  escrowScript,
+  slotAt,
+  timeAtSlot,
+} from "./escrow/script";
+import { syncEscrow } from "./escrow/service";
 import { loadOfferRow, priceFor } from "./offers";
+import {
+  allowedActions,
+  loadTradeRow,
+  lockForAction,
+  OPEN_STATUSES,
+  requireAction,
+  restoreOffer,
+  roleOf,
+  systemMessage,
+  type TradeRow,
+} from "./trade-store";
 import { completedTradeCount, type UserRow } from "./users";
-
-export interface TradeRow {
-  id: string;
-  offer_id: string;
-  maker_id: string;
-  taker_id: string;
-  seller_id: string;
-  buyer_id: string;
-  fiat: Fiat;
-  price_micro: unknown;
-  lovelace: unknown;
-  fiat_cents: unknown;
-  payment_method: PaymentMethod;
-  buyer_address: string;
-  status: TradeStatus;
-  payment_deadline: Date | string;
-  tx_hash: string | null;
-  paid_at: Date | string | null;
-  completed_at: Date | string | null;
-  completion_note: string | null;
-  cancelled_at: Date | string | null;
-  cancel_reason: string | null;
-  cancel_fault_user_id: string | null;
-  disputed_at: Date | string | null;
-  disputed_by: string | null;
-  dispute_reason: string | null;
-  created_at: Date | string;
-  updated_at: Date | string;
-}
 
 interface TradeDetailRow extends TradeRow {
   buyer_name: string;
   seller_name: string;
   terms: string;
 }
-
-const OPEN_STATUSES: TradeStatus[] = ["awaiting_payment", "paid", "disputed"];
 
 export const startTradeSchema = z
   .object({
@@ -96,45 +86,6 @@ export const resolveSchema = z
     banFaultUser: z.boolean().default(false),
   })
   .strict();
-
-async function systemMessage(db: Queryable, tradeId: string, body: string): Promise<void> {
-  await db.query("insert into trade_messages (trade_id, sender_id, body) values ($1, null, $2)", [tradeId, body]);
-}
-
-async function loadTradeRow(db: Queryable, id: string, lock = false): Promise<TradeRow | null> {
-  const { rows } = await db.query<TradeRow>(`select * from trades where id = $1${lock ? " for update" : ""}`, [id]);
-  return rows[0] ?? null;
-}
-
-function roleOf(ctx: AppContext, trade: Pick<TradeRow, "buyer_id" | "seller_id">, viewer: UserRow): Trade["role"] | null {
-  if (trade.buyer_id === viewer.id) return "buyer";
-  if (trade.seller_id === viewer.id) return "seller";
-  if (ctx.config.adminIdentities.has(viewer.identity)) return "admin";
-  return null;
-}
-
-export function allowedActions(
-  trade: Pick<TradeRow, "status" | "payment_deadline">,
-  role: Trade["role"],
-  now: Date,
-  hasRated: boolean,
-): TradeAction[] {
-  const actions: TradeAction[] = [];
-  const overdue = now.getTime() > new Date(trade.payment_deadline).getTime();
-  if (role === "buyer") {
-    if (trade.status === "awaiting_payment") actions.push("mark_paid", "cancel");
-    if (trade.status === "paid") actions.push("confirm_receipt", "dispute");
-    if (trade.status === "disputed") actions.push("confirm_receipt");
-  }
-  if (role === "seller") {
-    if (trade.status === "awaiting_payment" && overdue) actions.push("cancel");
-    if (trade.status === "paid") actions.push("release", "dispute");
-    if (trade.status === "disputed") actions.push("release");
-  }
-  if (role === "admin" && trade.status === "disputed") actions.push("resolve");
-  if ((role === "buyer" || role === "seller") && trade.status === "completed" && !hasRated) actions.push("rate");
-  return actions;
-}
 
 async function loadRatings(db: Queryable, tradeId: string): Promise<(Rating & { raterId: string })[]> {
   const { rows } = await db.query<{
@@ -174,6 +125,21 @@ async function buildTrade(ctx: AppContext, id: string, viewer: UserRow): Promise
   if (!role) throw notFound("Handel nicht gefunden.");
   const ratings = await loadRatings(ctx.db, id);
   const hasRated = ratings.some((rating) => rating.raterId === viewer.id);
+  const escrow: Escrow | null =
+    row.escrow && row.escrow_address && row.escrow_status
+      ? {
+          address: row.escrow_address,
+          status: row.escrow_status,
+          requiredLovelace: Number(row.escrow_required_lovelace),
+          fundedLovelace: Number(row.escrow_funded_lovelace ?? 0),
+          depositDeadline: toIsoOrNull(row.escrow_deadline),
+          refundAfter: toIso(row.escrow_refund_after),
+          script: row.escrow_script ?? "",
+          depositTxHash: row.escrow_deposit_tx,
+          payoutTxHash: row.payout_tx_hash,
+          payoutKind: row.payout_kind,
+        }
+      : null;
   return {
     id: row.id,
     offerId: row.offer_id,
@@ -201,6 +167,7 @@ async function buildTrade(ctx: AppContext, id: string, viewer: UserRow): Promise
     role,
     actions: allowedActions(row, role, ctx.now(), hasRated),
     ratings: ratings.map(({ raterId: _raterId, ...rating }) => rating),
+    escrow,
   };
 }
 
@@ -222,7 +189,11 @@ export async function getTradeDetail(
   viewer: UserRow,
   tradeId: string,
   afterMessageId = 0,
+  forceSync = false,
 ): Promise<TradeDetailResponse> {
+  const row = await loadTradeRow(ctx.db, tradeId);
+  if (!row || !roleOf(ctx, row, viewer)) throw notFound("Handel nicht gefunden.");
+  await syncEscrow(ctx, tradeId, forceSync);
   const trade = await buildTrade(ctx, tradeId, viewer);
   return { trade, messages: await loadMessages(ctx.db, tradeId, afterMessageId) };
 }
@@ -234,6 +205,10 @@ export async function startTrade(
   offerId: string,
   input: z.infer<typeof startTradeSchema>,
 ): Promise<string> {
+  const arbiterSecret = ctx.config.arbiterSecret;
+  if (!arbiterSecret) {
+    throw new HttpError(503, "escrow_not_configured", "Neue Trades sind gerade nicht möglich: Die Treuhand ist noch nicht eingerichtet.");
+  }
   return ctx.db.transaction(async (tx) => {
     // Nutzerzeile sperren, damit parallele Starts das Limit offener Trades nicht umgehen.
     await tx.query("select id from users where id = $1 for update", [taker.id]);
@@ -296,17 +271,36 @@ export async function startTrade(
     const makerSells = offer.side === "sell";
     const seller = makerSells ? maker : taker;
     const buyer = makerSells ? taker : maker;
-    const deadline = new Date(ctx.now().getTime() + offer.payment_window_min * 60_000);
+
+    // Treuhand: eigene Native-Script-Adresse für diesen Handel
+    const sellerKey = parseAddress(seller.receive_address)?.paymentKeyHash;
+    const buyerKey = parseAddress(buyer.receive_address)?.paymentKeyHash;
+    if (!sellerKey || !buyerKey) {
+      throw badRequest("Eine der beiden Wallets nutzt eine Script-Adresse. Für die Treuhand wird eine normale Wallet-Adresse gebraucht.");
+    }
+    const tradeId = randomUUID();
+    const now = ctx.now();
+    const refundSlot = slotAt(ctx.config.network, new Date(now.getTime() + ESCROW_REFUND_DAYS * 86_400_000));
+    const script = escrowScript({
+      sellerKeyHash: sellerKey,
+      buyerKeyHash: buyerKey,
+      arbiterKeyHash: arbiterKey(arbiterSecret, tradeId).to_public().hash().to_bytes(),
+      refundSlot,
+    });
+    const escrowDeadline = new Date(now.getTime() + ESCROW_DEPOSIT_WINDOW_MIN * 60_000);
+    const required = lovelace + ESCROW_FEE_BUFFER_LOVELACE;
 
     await tx.query("update offers set available_lovelace = available_lovelace - $2, updated_at = now() where id = $1", [
       offer.id,
       lovelace,
     ]);
-    const { rows } = await tx.query<{ id: string }>(
-      `insert into trades (offer_id, maker_id, taker_id, seller_id, buyer_id, fiat, price_micro, lovelace, fiat_cents,
-         payment_method, buyer_address, status, payment_deadline, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'awaiting_payment', $12, $13, $13)
-       returning id`,
+    await tx.query(
+      `insert into trades (id, offer_id, maker_id, taker_id, seller_id, buyer_id, fiat, price_micro, lovelace, fiat_cents,
+         payment_method, buyer_address, status, payment_deadline, payment_window_min, created_at, updated_at,
+         escrow, seller_address, escrow_address, escrow_script, escrow_refund_slot, escrow_refund_after,
+         escrow_required_lovelace, escrow_funded_lovelace, escrow_status, escrow_deadline)
+       values ($14, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'awaiting_escrow', $12, $15, $13, $13,
+         true, $16, $17, $18, $19, $20, $21, 0, 'pending', $12)`,
       [
         offer.id,
         maker.id,
@@ -319,41 +313,27 @@ export async function startTrade(
         fiatCents,
         input.paymentMethod,
         buyer.receive_address,
-        deadline,
-        ctx.now(),
+        escrowDeadline,
+        now,
+        tradeId,
+        offer.payment_window_min,
+        seller.receive_address,
+        escrowAddress(script, ctx.config.network),
+        script.to_hex(),
+        refundSlot,
+        timeAtSlot(ctx.config.network, refundSlot),
+        required,
       ],
     );
-    const tradeId = rows[0].id;
     await systemMessage(
       tx,
       tradeId,
       `Handel gestartet: ${formatAda(lovelace)} für ${formatFiat(fiatCents, offer.fiat)} per ${PAYMENT_METHOD_LABEL[input.paymentMethod]}. ` +
-        `${buyer.display_name} zahlt innerhalb von ${offer.payment_window_min} Minuten und markiert die Zahlung danach als erledigt.`,
+        `${seller.display_name} hinterlegt jetzt ${formatAda(required)} in der Treuhand (Menge plus Gebührenpuffer). ` +
+        `${buyer.display_name}: Bitte erst zahlen, wenn die Treuhand bestätigt ist.`,
     );
     return tradeId;
   });
-}
-
-/** Lädt und sperrt einen Handel und prüft die Rolle des Nutzers. */
-async function lockForAction(tx: Queryable, ctx: AppContext, tradeId: string, viewer: UserRow) {
-  const trade = await loadTradeRow(tx, tradeId, true);
-  if (!trade) throw notFound("Handel nicht gefunden.");
-  const role = roleOf(ctx, trade, viewer);
-  if (!role) throw notFound("Handel nicht gefunden.");
-  return { trade, role };
-}
-
-function requireAction(trade: TradeRow, role: Trade["role"], action: TradeAction, now: Date): void {
-  if (!allowedActions(trade, role, now, true).includes(action)) {
-    throw conflict("Diese Aktion ist im aktuellen Status nicht möglich.", "invalid_state");
-  }
-}
-
-async function restoreOffer(tx: Queryable, trade: TradeRow): Promise<void> {
-  await tx.query("update offers set available_lovelace = available_lovelace + $2, updated_at = now() where id = $1", [
-    trade.offer_id,
-    Number(trade.lovelace),
-  ]);
 }
 
 export async function markPaid(ctx: AppContext, viewer: UserRow, tradeId: string): Promise<void> {
@@ -364,7 +344,9 @@ export async function markPaid(ctx: AppContext, viewer: UserRow, tradeId: string
     await systemMessage(
       tx,
       tradeId,
-      "Der Käufer hat die Zahlung als erledigt markiert. Verkäufer: Bitte den Zahlungseingang prüfen und erst dann die ADA an die Käuferadresse senden.",
+      trade.escrow
+        ? "Der Käufer hat die Zahlung als erledigt markiert. Verkäufer: Bitte den Zahlungseingang auf deinem Konto prüfen und dann „Zahlung erhalten – ADA freigeben“ klicken."
+        : "Der Käufer hat die Zahlung als erledigt markiert. Verkäufer: Bitte den Zahlungseingang prüfen und erst dann die ADA an die Käuferadresse senden.",
     );
   });
 }
@@ -373,20 +355,23 @@ export async function cancelTrade(ctx: AppContext, viewer: UserRow, tradeId: str
   await ctx.db.transaction(async (tx) => {
     const { trade, role } = await lockForAction(tx, ctx, tradeId, viewer);
     requireAction(trade, role, "cancel", ctx.now());
-    const reason = role === "buyer" ? "buyer_cancelled" : "expired";
+    const beforeEscrow = trade.status === "awaiting_escrow";
+    const reason = role === "buyer" ? "buyer_cancelled" : beforeEscrow ? "seller_cancelled" : "expired";
+    const fault = role === "seller" && beforeEscrow ? trade.seller_id : trade.buyer_id;
     await tx.query(
       `update trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = $3, cancel_fault_user_id = $4
        where id = $1`,
-      [tradeId, ctx.now(), reason, trade.buyer_id],
+      [tradeId, ctx.now(), reason, fault],
     );
     await restoreOffer(tx, trade);
-    await systemMessage(
-      tx,
-      tradeId,
+    let text =
       role === "buyer"
         ? "Der Käufer hat den Handel abgebrochen."
-        : "Der Verkäufer hat den Handel nach Ablauf der Zahlungsfrist abgebrochen.",
-    );
+        : beforeEscrow
+          ? "Der Verkäufer hat den Handel vor der Hinterlegung abgebrochen."
+          : "Der Verkäufer hat den Handel nach Ablauf der Zahlungsfrist abgebrochen.";
+    if (trade.escrow_status === "funded") text += " Die ADA liegen in der Treuhand; der Verkäufer kann sie jetzt zurückholen.";
+    await systemMessage(tx, tradeId, text);
   });
 }
 
@@ -427,6 +412,9 @@ export async function confirmReceipt(ctx: AppContext, viewer: UserRow, tradeId: 
 export async function releaseTrade(ctx: AppContext, viewer: UserRow, tradeId: string, txHash: string): Promise<ReleaseResponse> {
   const trade = await ctx.db.transaction(async (tx) => {
     const { trade, role } = await lockForAction(tx, ctx, tradeId, viewer);
+    if (trade.escrow) {
+      throw conflict("Bei Trades mit Treuhand werden die ADA über die Treuhand freigegeben.", "use_escrow");
+    }
     requireAction(trade, role, "release", ctx.now());
     if (trade.tx_hash !== txHash) {
       try {
@@ -530,11 +518,14 @@ export async function resolveDispute(
       await tx.query("update users set is_banned = true where id = $1", [faultUser]);
       await tx.query("update offers set status = 'closed', updated_at = now() where user_id = $1 and status <> 'closed'", [faultUser]);
     }
-    await systemMessage(
-      tx,
-      tradeId,
-      `Moderation hat entschieden: Handel ${input.outcome === "completed" ? "abgeschlossen" : "abgebrochen"}. Begründung: ${input.note}`,
-    );
+    let text = `Moderation hat entschieden: Handel ${input.outcome === "completed" ? "abgeschlossen" : "abgebrochen"}. Begründung: ${input.note}`;
+    if (trade.escrow_status === "funded") {
+      text +=
+        input.outcome === "completed"
+          ? " Der Käufer kann die ADA jetzt aus der Treuhand abholen."
+          : " Der Verkäufer kann die ADA jetzt aus der Treuhand zurückholen.";
+    }
+    await systemMessage(tx, tradeId, text);
   });
 }
 
@@ -543,7 +534,7 @@ export async function listMyTrades(ctx: AppContext, viewer: UserRow): Promise<Tr
     `select t.*, b.display_name as buyer_name, s.display_name as seller_name
      from trades t join users b on b.id = t.buyer_id join users s on s.id = t.seller_id
      where t.buyer_id = $1 or t.seller_id = $1
-     order by (t.status in ('awaiting_payment', 'paid', 'disputed')) desc, t.updated_at desc
+     order by (t.status in ('awaiting_escrow', 'awaiting_payment', 'paid', 'disputed')) desc, t.updated_at desc
      limit 200`,
     [viewer.id],
   );
@@ -587,21 +578,46 @@ export async function listDisputes(ctx: AppContext, viewer: UserRow): Promise<Di
   }));
 }
 
-/** Bricht Trades ab, deren Zahlungsfrist samt Gnadenfrist abgelaufen ist. Gibt die Anzahl zurück. */
+/**
+ * Gleicht offene Treuhand-Adressen ab und bricht Trades ab, deren Frist samt Gnadenfrist abgelaufen ist:
+ * Hinterlegung nicht rechtzeitig (Verkäufer) oder Zahlung nicht rechtzeitig (Käufer). Gibt die Zahl der Abbrüche zurück.
+ */
 export async function expireOverdueTrades(ctx: AppContext): Promise<number> {
+  const { rows: open } = await ctx.db.query<{ id: string }>(
+    "select id from trades where escrow and escrow_status in ('pending', 'releasing', 'refunding') and status <> 'cancelled' limit 200",
+  );
+  for (const { id } of open) await syncEscrow(ctx, id, false);
+
   return ctx.db.transaction(async (tx) => {
     const cutoff = new Date(ctx.now().getTime() - AUTO_CANCEL_GRACE_MIN * 60_000);
-    const { rows } = await tx.query<TradeRow>(
+    const { rows: unfunded } = await tx.query<TradeRow>(
+      `update trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'escrow_expired',
+         cancel_fault_user_id = seller_id
+       where status = 'awaiting_escrow' and escrow_deadline < $1
+       returning *`,
+      [cutoff, ctx.now()],
+    );
+    for (const trade of unfunded) {
+      await restoreOffer(tx, trade);
+      await systemMessage(tx, trade.id, "Der Verkäufer hat die ADA nicht rechtzeitig hinterlegt. Der Handel wurde automatisch abgebrochen.");
+    }
+    const { rows: unpaid } = await tx.query<TradeRow>(
       `update trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'expired',
          cancel_fault_user_id = buyer_id
        where status = 'awaiting_payment' and payment_deadline < $1
        returning *`,
       [cutoff, ctx.now()],
     );
-    for (const trade of rows) {
+    for (const trade of unpaid) {
       await restoreOffer(tx, trade);
-      await systemMessage(tx, trade.id, "Die Zahlungsfrist ist abgelaufen. Der Handel wurde automatisch abgebrochen.");
+      await systemMessage(
+        tx,
+        trade.id,
+        trade.escrow
+          ? "Die Zahlungsfrist ist abgelaufen. Der Handel wurde automatisch abgebrochen; der Verkäufer kann die ADA aus der Treuhand zurückholen."
+          : "Die Zahlungsfrist ist abgelaufen. Der Handel wurde automatisch abgebrochen.",
+      );
     }
-    return rows.length;
+    return unfunded.length + unpaid.length;
   });
 }

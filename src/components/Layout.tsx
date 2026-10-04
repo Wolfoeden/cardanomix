@@ -148,8 +148,8 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             </div>
             <p className="muted small">
-              Peer-to-Peer-Handel mit ADA. Keine Verwahrung von Coins oder Geld – Zahlungen laufen direkt zwischen den
-              Handelspartnern.
+              Peer-to-Peer-Handel mit ADA. Die ADA liegen während des Handels in einer Treuhand auf der Blockchain, die
+              CardanoMix allein nicht bewegen kann; Geld fließt direkt zwischen den Handelspartnern.
             </p>
           </div>
           <nav className="footer-links" aria-label="Fußzeile">

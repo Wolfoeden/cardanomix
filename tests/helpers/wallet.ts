@@ -2,6 +2,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { blake2b } from "@noble/hashes/blake2.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import * as CSL from "@emurgo/cardano-serialization-lib-nodejs";
 import { Encoder } from "cbor-x";
 import { addressToBech32 } from "../../server/cardano/address";
 import { sigStructure } from "../../server/cardano/cip8";
@@ -16,8 +17,11 @@ export interface TestWallet {
   rewardAddressHex: string;
   baseAddress: string;
   rewardAddress: string;
+  paymentKeyHashHex: string;
   /** CIP-30 signData: signiert mit dem Stake-Schlüssel bei Stake-Adresse, sonst mit dem Zahlungsschlüssel. */
   signData(addressHex: string, payloadHex: string): { signature: string; key: string };
+  /** CIP-30 signTx: Witness-Set mit der Signatur des Zahlungsschlüssels. */
+  signTx(txHex: string): string;
 }
 
 /** Deterministische Test-Wallet mit echten Ed25519-Schlüsseln und CIP-19-Adressen. */
@@ -43,6 +47,15 @@ export function createTestWallet(seed: string, networkId = 1): TestWallet {
     rewardAddressHex: bytesToHex(reward),
     baseAddress: addressToBech32(base),
     rewardAddress: addressToBech32(reward),
+    paymentKeyHashHex: bytesToHex(paymentHash),
+    signTx(txHex) {
+      const hash = CSL.FixedTransaction.from_hex(txHex).transaction_hash();
+      const vkeys = CSL.Vkeywitnesses.new();
+      vkeys.add(CSL.make_vkey_witness(hash, CSL.PrivateKey.from_normal_bytes(paymentPriv)));
+      const witnessSet = CSL.TransactionWitnessSet.new();
+      witnessSet.set_vkeys(vkeys);
+      return witnessSet.to_hex();
+    },
     signData(addressHex, payloadHex) {
       const address = hexToBytes(addressHex);
       const useStake = (address[0] >> 4) === 0b1110;

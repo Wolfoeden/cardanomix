@@ -3,7 +3,17 @@ import type { Me } from "../shared/types";
 import { api, errorMessage } from "./api";
 import { CopyButton, Modal } from "./components/Ui";
 import { useConfig } from "./hooks";
-import { enableWallet, lastWallet, listWallets, rememberWallet, utf8ToHex, walletErrorMessage, type WalletInfo } from "./wallet";
+import {
+  clearActiveWallet,
+  enableWallet,
+  lastWallet,
+  listWallets,
+  rememberWallet,
+  setActiveWallet,
+  utf8ToHex,
+  walletErrorMessage,
+  type WalletInfo,
+} from "./wallet";
 
 interface AuthState {
   me: Me | null;
@@ -69,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await api.logout().catch(() => undefined);
+    clearActiveWallet();
     setMe(null);
   }, []);
 
@@ -134,6 +145,7 @@ function WalletDialog({ onDone }: { onDone: (me: Me | null) => void }) {
       setStep("Signatur wird geprüft …");
       const { user } = await api.login({ nonce: challenge.nonce, ...signed, receiveAddress: changeAddress });
       rememberWallet(wallet.key);
+      setActiveWallet(wallet.key, walletApi);
       onDone(user);
     } catch (err) {
       setError(errorMessage(err));

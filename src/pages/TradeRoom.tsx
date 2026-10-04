@@ -5,8 +5,19 @@ import { formatAda, formatFiat, formatPrice, lovelaceToAdaString } from "../../s
 import type { Trade, TradeMessage } from "../../shared/types";
 import { api, errorMessage } from "../api";
 import { useAuth } from "../auth";
-import { AlertIcon, ChainIcon, ChatIcon, CheckIcon, ClockIcon, ExternalIcon, ThumbDownIcon, ThumbUpIcon } from "../components/Icons";
-import { Avatar, CopyButton, ErrorNotice, formatDateTime, formatRemaining, Modal, Spinner, StatusBadge } from "../components/Ui";
+import {
+  AlertIcon,
+  ChainIcon,
+  ChatIcon,
+  CheckIcon,
+  ClockIcon,
+  ExternalIcon,
+  ShieldIcon,
+  ThumbDownIcon,
+  ThumbUpIcon,
+} from "../components/Icons";
+import { CheckEscrowButton, DepositButton, EscrowBox, EscrowDetails, explorerTxUrl, PayoutButton } from "../components/Escrow";
+import { Avatar, CopyButton, ErrorNotice, formatDateTime, formatRemaining, Modal, shortAddress, Spinner, StatusBadge } from "../components/Ui";
 import { useConfig, useDocumentTitle, useInterval, useNow } from "../hooks";
 
 function explorerUrl(network: string | undefined, hash: string): string {
@@ -14,11 +25,20 @@ function explorerUrl(network: string | undefined, hash: string): string {
 }
 
 function Steps({ trade }: { trade: Trade }) {
-  const steps = ["Handel gestartet", "Fiat bezahlt", "ADA gesendet", "Abgeschlossen"];
+  const steps = trade.escrow
+    ? ["Handel gestartet", "ADA in Treuhand", "Fiat bezahlt", "ADA freigegeben"]
+    : ["Handel gestartet", "Fiat bezahlt", "ADA gesendet", "Abgeschlossen"];
   let done = 1;
-  if (trade.status === "paid" || trade.status === "disputed") done = trade.txHash ? 3 : 2;
-  if (trade.status === "completed") done = 4;
-  if (trade.status === "cancelled") done = trade.paidAt ? 2 : 1;
+  if (trade.escrow) {
+    if (trade.status === "awaiting_payment") done = 2;
+    if (trade.status === "paid" || trade.status === "disputed") done = 3;
+    if (trade.status === "completed") done = 4;
+    if (trade.status === "cancelled") done = trade.escrow.fundedLovelace > 0 ? 2 : 1;
+  } else {
+    if (trade.status === "paid" || trade.status === "disputed") done = trade.txHash ? 3 : 2;
+    if (trade.status === "completed") done = 4;
+    if (trade.status === "cancelled") done = trade.paidAt ? 2 : 1;
+  }
   return (
     <ol className={`steps ${trade.status === "cancelled" ? "steps-cancelled" : ""}`} aria-label="Fortschritt">
       {steps.map((step, index) => (
@@ -228,8 +248,12 @@ function ResolveForm({ trade, onDone }: { trade: Trade; onDone: () => void }) {
         <label className="field">
           <span>Ergebnis</span>
           <select value={outcome} onChange={(event) => setOutcome(event.target.value as typeof outcome)}>
-            <option value="completed">Abschließen (ADA wurden gesendet)</option>
-            <option value="cancelled">Abbrechen</option>
+            <option value="completed">
+              {trade.escrow ? "Für den Käufer (ADA aus der Treuhand an den Käufer)" : "Abschließen (ADA wurden gesendet)"}
+            </option>
+            <option value="cancelled">
+              {trade.escrow ? "Für den Verkäufer (ADA zurück an den Verkäufer)" : "Abbrechen"}
+            </option>
           </select>
         </label>
         <label className="field">
@@ -257,6 +281,185 @@ function ResolveForm({ trade, onDone }: { trade: Trade; onDone: () => void }) {
   );
 }
 
+function EscrowBody({ trade, reload }: { trade: Trade; reload: () => Promise<void> }) {
+  const config = useConfig();
+  const escrow = trade.escrow!;
+  const can = (action: Trade["actions"][number]) => trade.actions.includes(action);
+  const fiat = formatFiat(trade.fiatCents, trade.fiat);
+  const ada = formatAda(trade.lovelace);
+  const secured = (
+    <p className="secured">
+      <ShieldIcon size={16} /> {formatAda(escrow.fundedLovelace)} liegen geprüft in der Treuhand.
+    </p>
+  );
+  const payoutLink = escrow.payoutTxHash && (
+    <p>
+      <a href={explorerTxUrl(config?.network, escrow.payoutTxHash)} target="_blank" rel="noreferrer" className="link-external">
+        Transaktion im Explorer ansehen <ExternalIcon size={14} />
+      </a>
+    </p>
+  );
+
+  switch (trade.status) {
+    case "awaiting_escrow":
+      return trade.role === "seller" ? (
+        <>
+          <h3>ADA in die Treuhand legen</h3>
+          <p>
+            Lege <strong>{formatAda(escrow.requiredLovelace)}</strong> in die Treuhand: {ada} für den Käufer plus einen kleinen
+            Gebührenpuffer, der nach dem Handel zurückkommt. Erst wenn die ADA dort liegen, zahlt der Käufer.
+          </p>
+          <EscrowBox trade={trade} showManual />
+          <div className="action-buttons">
+            {can("fund_escrow") && <DepositButton trade={trade} onDone={reload} />}
+            <CheckEscrowButton trade={trade} onDone={reload} />
+          </div>
+        </>
+      ) : (
+        <>
+          <h3>Warte auf die Treuhand – bitte noch nicht zahlen</h3>
+          <p>
+            {trade.seller.displayName} legt jetzt {ada} in die Treuhand. Sobald sie dort auf der Blockchain liegen, siehst du es
+            hier und kannst sicher zahlen.
+          </p>
+          <EscrowBox trade={trade} showManual={false} />
+          <div className="action-buttons">
+            <CheckEscrowButton trade={trade} onDone={reload} />
+          </div>
+        </>
+      );
+    case "awaiting_payment":
+      return trade.role === "buyer" ? (
+        <>
+          <h3>ADA sind gesichert – bitte jetzt {fiat} zahlen</h3>
+          {secured}
+          <p>
+            Überweise genau <strong>{fiat}</strong> per {PAYMENT_METHOD_LABEL[trade.paymentMethod]} an {trade.seller.displayName}.
+            Die Zahlungsdaten bekommst du im Chat. Markiere die Zahlung danach als erledigt.
+          </p>
+        </>
+      ) : (
+        <>
+          <h3>Warte auf die Zahlung</h3>
+          {secured}
+          <p>
+            {trade.buyer.displayName} überweist dir <strong>{fiat}</strong> per {PAYMENT_METHOD_LABEL[trade.paymentMethod]}. Teile
+            deine Zahlungsdaten im Chat.
+          </p>
+          {can("release") && (
+            <details className="manual">
+              <summary>Geld ist schon da?</summary>
+              <p className="muted small">Dann kannst du die ADA schon jetzt freigeben.</p>
+              <PayoutButton trade={trade} variant="release" onDone={reload} />
+            </details>
+          )}
+        </>
+      );
+    case "paid":
+      return trade.role === "seller" ? (
+        <>
+          <h3>Zahlungseingang prüfen, dann freigeben</h3>
+          {secured}
+          <p>
+            Der Käufer hat die Zahlung als erledigt markiert. Prüfe auf deinem Konto, ob <strong>{fiat}</strong> gutgeschrieben
+            sind – nicht auf Screenshots verlassen. Ist das Geld da, gib die ADA frei: Sie gehen direkt aus der Treuhand an den
+            Käufer.
+          </p>
+          <div className="action-buttons">{can("release") && <PayoutButton trade={trade} variant="release" onDone={reload} />}</div>
+        </>
+      ) : (
+        <>
+          <h3>Der Verkäufer prüft deine Zahlung</h3>
+          {secured}
+          <p>
+            Sobald {trade.seller.displayName} den Zahlungseingang bestätigt, gehen <strong>{ada}</strong> aus der Treuhand an deine
+            Adresse <code className="address">{shortAddress(trade.buyerAddress)}</code>. Kommt keine Freigabe, eröffne einen
+            Streitfall – die ADA bleiben bis zur Entscheidung in der Treuhand.
+          </p>
+        </>
+      );
+    case "disputed":
+      return (
+        <>
+          <h3>
+            <AlertIcon size={18} /> Streitfall in Prüfung
+          </h3>
+          {escrow.status === "funded" && secured}
+          <p>
+            Die Moderation prüft den Handel. Stelle Belege wie Zahlungsnachweise im Chat bereit.
+            {trade.disputeReason && (
+              <>
+                <br />
+                <span className="muted">Begründung: „{trade.disputeReason}“</span>
+              </>
+            )}
+          </p>
+          {can("release") && (
+            <div className="action-buttons">
+              <PayoutButton trade={trade} variant="release" onDone={reload} />
+            </div>
+          )}
+          {can("resolve") && <ResolveForm trade={trade} onDone={() => void reload()} />}
+        </>
+      );
+    case "completed":
+      return (
+        <>
+          <h3 className="success-title">
+            <CheckIcon />{" "}
+            {escrow.status === "released" ? "Handel abgeschlossen" : escrow.status === "releasing" ? "ADA sind unterwegs" : "Entschieden"}
+          </h3>
+          {escrow.status === "released" && <p>{ada} sind aus der Treuhand beim Käufer angekommen.</p>}
+          {escrow.status === "releasing" && <p>Die Auszahlung ist eingereicht. Die Bestätigung auf der Blockchain folgt in 1–2 Minuten.</p>}
+          {escrow.status === "funded" && (
+            <p>
+              Die Moderation hat für den Käufer entschieden.{" "}
+              {trade.role === "buyer" ? "Hol dir die ADA jetzt aus der Treuhand ab." : "Der Käufer kann die ADA jetzt abholen."}
+            </p>
+          )}
+          {payoutLink}
+          <div className="action-buttons">
+            {can("claim") && <PayoutButton trade={trade} variant="claim" onDone={reload} />}
+            {can("release") && trade.role === "seller" && escrow.status === "funded" && (
+              <PayoutButton trade={trade} variant="release" onDone={reload} />
+            )}
+          </div>
+          {can("rate") && <RatingForm trade={trade} onDone={() => void reload()} />}
+        </>
+      );
+    case "cancelled":
+      return (
+        <>
+          <h3>Handel abgebrochen</h3>
+          <p className="muted">
+            {trade.cancelReason === "buyer_cancelled" && "Der Käufer hat den Handel abgebrochen. "}
+            {trade.cancelReason === "seller_cancelled" && "Der Verkäufer hat den Handel vor der Hinterlegung abgebrochen. "}
+            {trade.cancelReason === "escrow_expired" && "Die ADA wurden nicht rechtzeitig hinterlegt. "}
+            {trade.cancelReason === "expired" && "Die Zahlungsfrist ist abgelaufen. "}
+            {trade.cancelReason === "admin" && "Die Moderation hat für den Verkäufer entschieden. "}
+            Die reservierte Menge ist wieder im Angebot verfügbar.
+          </p>
+          {escrow.status === "funded" && (
+            <p>
+              {formatAda(escrow.fundedLovelace)} liegen noch in der Treuhand.{" "}
+              {trade.role === "seller" ? "Hol sie dir jetzt zurück." : "Der Verkäufer kann sie zurückholen."}
+            </p>
+          )}
+          {escrow.status === "refunding" && <p>Die Rückzahlung ist eingereicht und wird gleich bestätigt.</p>}
+          {escrow.status === "refunded" && <p>Die ADA sind zurück beim Verkäufer.</p>}
+          {payoutLink}
+          {can("refund") && (
+            <div className="action-buttons">
+              <PayoutButton trade={trade} variant="refund" onDone={reload} />
+            </div>
+          )}
+        </>
+      );
+    default:
+      return null;
+  }
+}
+
 type Dialog = "paid" | "cancel" | "confirm" | "dispute" | null;
 
 function ActionPanel({ trade, reload, setTrade }: { trade: Trade; reload: () => Promise<void>; setTrade: (trade: Trade) => void }) {
@@ -264,13 +467,16 @@ function ActionPanel({ trade, reload, setTrade }: { trade: Trade; reload: () => 
   const now = useNow();
   const [dialog, setDialog] = useState<Dialog>(null);
   const [reason, setReason] = useState("");
-  const remaining = new Date(trade.paymentDeadline).getTime() - now;
+  const depositDeadline = trade.escrow?.depositDeadline;
+  const remaining = new Date(trade.status === "awaiting_escrow" && depositDeadline ? depositDeadline : trade.paymentDeadline).getTime() - now;
   const can = (action: Trade["actions"][number]) => trade.actions.includes(action);
   const fiat = formatFiat(trade.fiatCents, trade.fiat);
   const ada = formatAda(trade.lovelace);
 
   let body: ReactNode = null;
-  if (trade.status === "awaiting_payment") {
+  if (trade.escrow) {
+    body = <EscrowBody trade={trade} reload={reload} />;
+  } else if (trade.status === "awaiting_payment") {
     body =
       trade.role === "buyer" ? (
         <>
@@ -376,15 +582,16 @@ function ActionPanel({ trade, reload, setTrade }: { trade: Trade; reload: () => 
 
   return (
     <section className="card action-panel" aria-live="polite">
-      {trade.status === "awaiting_payment" && (
+      {(trade.status === "awaiting_payment" || trade.status === "awaiting_escrow") && (
         <div className={`countdown ${remaining <= 0 ? "countdown-over" : remaining < 5 * 60_000 ? "countdown-soon" : ""}`}>
           <ClockIcon size={16} />
           {remaining > 0 ? (
             <>
-              Zahlungsfrist: <strong>{formatRemaining(remaining)}</strong>
+              {trade.status === "awaiting_escrow" ? "Frist für die Hinterlegung" : "Zahlungsfrist"}:{" "}
+              <strong>{formatRemaining(remaining)}</strong>
             </>
           ) : (
-            <>Zahlungsfrist abgelaufen</>
+            <>{trade.status === "awaiting_escrow" ? "Frist für die Hinterlegung abgelaufen" : "Zahlungsfrist abgelaufen"}</>
           )}
         </div>
       )}
@@ -441,9 +648,12 @@ function ActionPanel({ trade, reload, setTrade }: { trade: Trade; reload: () => 
           }}
         >
           <p>
-            {trade.role === "buyer"
-              ? "Brich nur ab, wenn du noch nicht bezahlt hast. Ein Abbruch zählt in deine Abschlussquote."
-              : "Die Zahlungsfrist ist abgelaufen. Hast du trotzdem Geld erhalten, brich nicht ab, sondern kläre es im Chat."}
+            {trade.status === "awaiting_escrow"
+              ? "Noch liegen keine ADA in der Treuhand. Ein Abbruch zählt in deine Abschlussquote."
+              : trade.role === "buyer"
+                ? "Brich nur ab, wenn du noch nicht bezahlt hast. Ein Abbruch zählt in deine Abschlussquote."
+                : "Die Zahlungsfrist ist abgelaufen. Hast du trotzdem Geld erhalten, brich nicht ab, sondern kläre es im Chat."}
+            {trade.escrow && trade.status === "awaiting_payment" && " Die ADA gehen danach zurück an den Verkäufer."}
           </p>
         </Confirm>
       )}
@@ -708,6 +918,7 @@ export function TradeRoomPage() {
                 </div>
               )}
             </dl>
+            {trade.escrow && <EscrowDetails trade={trade} />}
             {trade.terms && (
               <div className="terms">
                 <h3>Bedingungen des Anbieters</h3>

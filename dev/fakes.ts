@@ -20,34 +20,3 @@ export function fakePriceSource(): PriceSource {
     },
   };
 }
-
-/**
- * Simuliert Koios: Bekannt sind nur Transaktionen, die vorher über `registerFakeTx`
- * hinterlegt wurden; sie gelten als bestätigt und zahlen den hinterlegten Betrag an die Adresse.
- */
-const fakeTxs = new Map<string, { address: string; lovelace: number }>();
-
-export function registerFakeTx(hash: string, address: string, lovelace: number): void {
-  fakeTxs.set(hash, { address, lovelace });
-}
-
-export function fakeChainFetch(): typeof fetch {
-  return async (input, init) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (!url.includes("koios.rest")) return fetch(input, init);
-    const body = JSON.parse(String(init?.body ?? "{}")) as { _tx_hashes?: string[] };
-    const txs = (body._tx_hashes ?? []).flatMap((hash) => {
-      const tx = fakeTxs.get(hash);
-      if (!tx) return [];
-      return [
-        {
-          tx_hash: hash,
-          block_height: 1,
-          tx_timestamp: Math.floor(Date.now() / 1000),
-          outputs: [{ payment_addr: { bech32: tx.address }, value: String(tx.lovelace) }],
-        },
-      ];
-    });
-    return new Response(JSON.stringify(txs), { headers: { "content-type": "application/json" } });
-  };
-}

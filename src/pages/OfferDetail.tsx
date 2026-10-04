@@ -139,19 +139,22 @@ function TradeForm({ offer }: { offer: Offer }) {
           {error}
         </div>
       )}
-      <div className="notice notice-warn small">
-        <strong>Ohne Treuhand.</strong>{" "}
-        {youBuy
-          ? "Du zahlst zuerst, der Verkäufer sendet danach die ADA. Liefert er nicht, kann die Moderation das Konto sperren, aber dein Geld nicht zurückholen."
-          : "Der Käufer zahlt zuerst. Sende die ADA erst, wenn das Geld auf deinem Konto gutgeschrieben ist."}{" "}
-        Starte mit kleinen Beträgen.
+      <div className="notice notice-escrow small">
+        <ShieldIcon size={16} />
+        <span>
+          <strong>Mit Treuhand.</strong>{" "}
+          {youBuy
+            ? "Der Verkäufer legt die ADA vor deiner Zahlung in eine Treuhand auf der Blockchain. Du zahlst erst, wenn sie dort liegen; nach seiner Bestätigung gehen sie direkt an dich."
+            : "Du legst die ADA vor der Zahlung in eine Treuhand (plus 2 ADA Gebührenpuffer, der zurückkommt). Ist das Geld auf deinem Konto, gibst du sie per Klick frei."}{" "}
+          Im Streitfall entscheidet die Moderation.
+        </span>
       </div>
       <button type="submit" className={`btn btn-lg btn-block ${youBuy ? "btn-buy" : "btn-sell"}`} disabled={busy || !amount.trim()}>
         {busy ? "Handel wird gestartet …" : me ? "Handel starten" : "Mit Wallet anmelden & starten"}
       </button>
       <p className="muted small">
-        Beim Start wird die Menge im Angebot für dich reserviert. {youBuy ? "Du hast" : "Dein Gegenüber hat"} dann{" "}
-        {offer.paymentWindowMin} Minuten Zeit für die Zahlung.
+        Beim Start wird die Menge im Angebot für dich reserviert. Die Zahlungsfrist von {offer.paymentWindowMin} Minuten beginnt,
+        sobald die ADA in der Treuhand liegen.
       </p>
     </form>
   );

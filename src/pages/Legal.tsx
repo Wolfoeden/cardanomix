@@ -50,9 +50,15 @@ export function LegalPage() {
         <ul>
           <li>Der Kurs von ADA schwankt stark. Ein Totalverlust ist möglich.</li>
           <li>
-            CardanoMix P2P verwahrt weder Kryptowerte noch Geld. Zahlungen laufen direkt zwischen den Handelspartnern. Es gibt
-            derzeit keine Treuhand: Wer zuerst zahlt, trägt das Risiko, dass das Gegenüber nicht liefert.
+            Die ADA liegen während eines Handels auf einer Treuhand-Adresse (Native Script). Auszahlen geht nur mit zwei von drei
+            Unterschriften (Verkäufer, Käufer, CardanoMix); nach 14 Tagen kann der Verkäufer allein zurückholen. CardanoMix allein
+            kann die ADA nicht bewegen. Fiat-Zahlungen laufen direkt zwischen den Handelspartnern und werden nicht verwahrt.
           </li>
+          <li>
+            Ob die Fiat-Zahlung angekommen ist, kann die Blockchain nicht sehen. Im Streitfall entscheidet die Moderation anhand
+            der Belege und signiert die Auszahlung an die berechtigte Seite mit.
+          </li>
+          <li>Die Treuhand ist neu (Beta). Nicht alle Wallets unterstützen das Mitsignieren gleich gut; starte mit kleinen Beträgen.</li>
           <li>Banküberweisungen und besonders PayPal-Zahlungen können zurückgebucht werden.</li>
           <li>Transaktionen auf der Cardano-Blockchain sind endgültig und können nicht rückgängig gemacht werden.</li>
           <li>
@@ -97,9 +103,9 @@ export function LegalPage() {
             Standardvertragsklauseln.
           </li>
           <li>
-            <strong>Drittanbieter:</strong> Kurse werden serverseitig bei CoinGecko bzw. Kraken abgefragt, Transaktionen bei
-            der Koios-API geprüft. Dabei werden keine personenbezogenen Daten außer Transaktions-ID und Empfangsadresse
-            übermittelt.
+            <strong>Drittanbieter:</strong> Kurse werden serverseitig bei CoinGecko bzw. Kraken abgefragt, Treuhand-Adressen und
+            Transaktionen über die Koios-API geprüft und eingereicht. Für die Hinterlegung übermittelt deine Wallet ihre
+            UTxOs (öffentliche Blockchain-Daten) an unseren Server, der daraus die Transaktion baut.
           </li>
         </ul>
         <p>

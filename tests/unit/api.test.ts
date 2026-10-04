@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createTestApi, sellOffer } from "../helpers/api";
+import { expireOverdueTrades } from "../../server/trades";
+import { ADA, createTestApi, sellOffer } from "../helpers/api";
 import { createTestWallet, utf8ToHex } from "../helpers/wallet";
 
 describe("Öffentliche Endpunkte", () => {
@@ -11,7 +12,13 @@ describe("Öffentliche Endpunkte", () => {
     expect((await api.call("GET", "/api/gibts-nicht")).status).toBe(404);
     expect((await api.call("DELETE", "/api/config")).status).toBe(405);
     expect((await api.call("GET", "/api/offers/keine-uuid")).status).toBe(404);
-    expect((await api.call("GET", "/api/health")).body).toEqual({ ok: true, database: true, login: true, network: "mainnet" });
+    expect((await api.call("GET", "/api/health")).body).toEqual({
+      ok: true,
+      database: true,
+      login: true,
+      escrow: true,
+      network: "mainnet",
+    });
   });
 });
 
@@ -80,7 +87,7 @@ describe("Anmeldung mit Wallet", () => {
     expect(result.status).toBe(503);
     const health = await api.call("GET", "/api/health");
     expect(health.status).toBe(503);
-    expect(health.body).toMatchObject({ ok: false, database: true, login: false });
+    expect(health.body).toMatchObject({ ok: false, database: true, login: false, escrow: true });
   });
 
   it("ändert den Anzeigenamen und verhindert Dubletten", async () => {
@@ -143,8 +150,8 @@ describe("Angebote", () => {
   });
 });
 
-async function setupTrade(amount = "20") {
-  const api = await createTestApi();
+async function setupTrade(amount = "20", overrides = {}) {
+  const api = await createTestApi(overrides);
   const seller = await api.login("seller");
   const buyer = await api.login("buyer");
   const offer = (await api.call("POST", "/api/offers", { cookie: seller.cookie, body: sellOffer })).body.offer;
@@ -156,95 +163,159 @@ async function setupTrade(amount = "20") {
   return { api, seller, buyer, offer, tradeId: started.body.tradeId as string };
 }
 
-describe("Handelsablauf", () => {
-  it("läuft vom Start bis zur On-Chain-Bestätigung und Bewertung", async () => {
+const view = async (api: Awaited<ReturnType<typeof createTestApi>>, cookie: string, tradeId: string) =>
+  (await api.call("GET", `/api/trades/${tradeId}`, { cookie })).body.trade;
+
+describe("Handelsablauf mit Treuhand", () => {
+  it("Hinterlegung → Zahlung → Freigabe per Button → ADA beim Käufer → Bewertung", async () => {
     const { api, seller, buyer, offer, tradeId } = await setupTrade();
 
-    let detail = await api.call("GET", `/api/trades/${tradeId}`, { cookie: buyer.cookie });
-    expect(detail.body.trade).toMatchObject({
-      status: "awaiting_payment",
-      role: "buyer",
-      lovelace: 40_000_000, // 20 EUR / 0,50 EUR
-      fiatCents: 2_000,
-      buyerAddress: buyer.wallet.baseAddress,
-      actions: ["mark_paid", "cancel"],
-      terms: sellOffer.terms,
-    });
-    expect(detail.body.messages[0].senderId).toBeNull();
-    expect((await api.call("GET", `/api/offers/${offer.id}`)).body.offer.availableLovelace).toBe(960_000_000);
+    let trade = await view(api, buyer.cookie, tradeId);
+    expect(trade).toMatchObject({ status: "awaiting_escrow", role: "buyer", lovelace: 40 * ADA, fiatCents: 2_000, actions: ["cancel"] });
+    expect(trade.escrow).toMatchObject({ status: "pending", requiredLovelace: 42 * ADA, fundedLovelace: 0, payoutTxHash: null });
+    expect(trade.escrow.address).toMatch(/^addr1w/);
+    expect(new Date(trade.escrow.refundAfter).getTime() - api.getNow().getTime()).toBe(14 * 86_400_000);
+    expect((await view(api, seller.cookie, tradeId)).actions).toEqual(["fund_escrow", "cancel"]);
+    expect((await api.call("GET", `/api/offers/${offer.id}`)).body.offer.availableLovelace).toBe(960 * ADA);
 
-    // Verkäufer darf vor Fristablauf weder abbrechen noch freigeben
-    expect((await api.call("POST", `/api/trades/${tradeId}/cancel`, { cookie: seller.cookie })).status).toBe(409);
-    expect((await api.call("POST", `/api/trades/${tradeId}/paid`, { cookie: seller.cookie })).status).toBe(409);
+    // Vor der Hinterlegung kann der Käufer nicht „bezahlt“ melden, und nur der Verkäufer hinterlegt
+    expect((await api.call("POST", `/api/trades/${tradeId}/paid`, { cookie: buyer.cookie })).status).toBe(409);
+    expect(
+      (
+        await api.call("POST", `/api/trades/${tradeId}/escrow/deposit-tx`, {
+          cookie: buyer.cookie,
+          body: { utxos: ["00"], changeAddress: buyer.wallet.baseAddressHex },
+        })
+      ).status,
+    ).toBe(409);
+
+    api.advance(5);
+    const funded = await api.deposit(seller, tradeId);
+    expect(funded.status).toBe(200);
+    expect(funded.body.trade).toMatchObject({ status: "awaiting_payment", escrow: { status: "funded", fundedLovelace: 42 * ADA } });
+    expect(funded.body.trade.escrow.depositTxHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(api.ledger.balance(trade.escrow.address)).toBe(42 * ADA);
+    // Die Zahlungsfrist (30 Minuten) beginnt erst mit der bestätigten Hinterlegung
+    expect(new Date(funded.body.trade.paymentDeadline).getTime() - api.getNow().getTime()).toBe(30 * 60_000);
 
     expect((await api.call("POST", `/api/trades/${tradeId}/paid`, { cookie: buyer.cookie })).status).toBe(200);
-    expect((await api.call("POST", `/api/trades/${tradeId}/paid`, { cookie: buyer.cookie })).status).toBe(409);
+    expect((await view(api, seller.cookie, tradeId)).actions).toEqual(["release", "dispute"]);
+    // Der alte Weg (Tx-Hash melden, ADA direkt senden) ist bei Treuhand-Trades gesperrt
+    const direct = await api.call("POST", `/api/trades/${tradeId}/release`, { cookie: seller.cookie, body: { txHash: "a".repeat(64) } });
+    expect(direct.body.code).toBe("use_escrow");
 
-    await api.call("POST", `/api/trades/${tradeId}/messages`, { cookie: seller.cookie, body: { body: "Zahlung ist da, sende jetzt." } });
+    // Käufer darf nicht auszahlen, Verkäufer nicht zurückholen
+    expect(
+      (await api.call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, { cookie: buyer.cookie, body: { kind: "release" } })).status,
+    ).toBe(409);
+    expect(
+      (await api.call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, { cookie: seller.cookie, body: { kind: "refund" } })).status,
+    ).toBe(409);
 
-    const hash = "b".repeat(64);
-    // Erst zu wenig, dann korrekt
-    api.chain.set(hash, { hash, address: buyer.wallet.baseAddress, lovelace: 39_000_000, timestamp: api.getNow().getTime() / 1000 + 30 });
-    let release = await api.call("POST", `/api/trades/${tradeId}/release`, { cookie: seller.cookie, body: { txHash: hash } });
-    expect(release.body.verification.ok).toBe(false);
-    expect(release.body.trade.status).toBe("paid");
+    const buyerBefore = api.ledger.balance(buyer.wallet.baseAddress);
+    const preview = await api.call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, {
+      cookie: seller.cookie,
+      body: { kind: "release" },
+    });
+    expect(preview.body).toMatchObject({
+      kind: "release",
+      toAddress: buyer.wallet.baseAddress,
+      toLovelace: 40 * ADA,
+      changeAddress: seller.wallet.baseAddress,
+    });
+    expect(preview.body.changeLovelace + preview.body.fee).toBe(2 * ADA);
 
-    api.chain.set(hash, { hash, address: buyer.wallet.baseAddress, lovelace: 40_000_000, timestamp: api.getNow().getTime() / 1000 + 30 });
-    release = await api.call("POST", `/api/trades/${tradeId}/release`, { cookie: seller.cookie, body: { txHash: hash.toUpperCase() } });
-    expect(release.body.verification.ok).toBe(true);
-    expect(release.body.trade).toMatchObject({ status: "completed", completionNote: "onchain", txHash: hash, actions: ["rate"] });
+    const wrong = await api.call("POST", `/api/trades/${tradeId}/escrow/payout`, {
+      cookie: seller.cookie,
+      body: { witnessSet: createTestWallet("fremd").signTx(preview.body.txHex) },
+    });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error).toMatch(/Schlüssel dieses Handels/);
 
-    expect((await api.call("POST", `/api/trades/${tradeId}/rating`, { cookie: buyer.cookie, body: { positive: true, comment: "Top!" } })).status).toBe(201);
-    expect((await api.call("POST", `/api/trades/${tradeId}/rating`, { cookie: buyer.cookie, body: { positive: true } })).status).toBe(409);
+    const released = await api.call("POST", `/api/trades/${tradeId}/escrow/payout`, {
+      cookie: seller.cookie,
+      body: { witnessSet: seller.wallet.signTx(preview.body.txHex) },
+    });
+    expect(released.status).toBe(200);
+    expect(api.ledger.balance(buyer.wallet.baseAddress) - buyerBefore).toBe(40 * ADA);
+    expect(api.ledger.balance(trade.escrow.address)).toBe(0);
 
-    detail = await api.call("GET", `/api/trades/${tradeId}?after=1`, { cookie: seller.cookie });
-    expect(detail.body.trade.ratings).toHaveLength(1);
-    expect(detail.body.messages.every((message: { id: number }) => message.id > 1)).toBe(true);
+    trade = (await api.call("POST", `/api/trades/${tradeId}/escrow/check`, { cookie: buyer.cookie })).body.trade;
+    expect(trade).toMatchObject({
+      status: "completed",
+      completionNote: "escrow_release",
+      escrow: { status: "released", payoutKind: "release", payoutTxHash: released.body.txHash },
+      actions: ["rate"],
+    });
+    expect(
+      (await api.call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, { cookie: seller.cookie, body: { kind: "release" } })).status,
+    ).toBe(409);
 
+    expect(
+      (await api.call("POST", `/api/trades/${tradeId}/rating`, { cookie: buyer.cookie, body: { positive: true, comment: "Top!" } }))
+        .status,
+    ).toBe(201);
     const profile = await api.call("GET", `/api/users/${seller.user.id}`);
     expect(profile.body.user.stats).toMatchObject({ completedTrades: 1, completionRate: 1, positiveRatings: 1 });
-    expect(profile.body.ratings[0].comment).toBe("Top!");
-    expect((await api.call("GET", "/api/stats")).body.completedTrades).toBe(1);
+    const messages = (await api.call("GET", `/api/trades/${tradeId}`, { cookie: buyer.cookie })).body.messages;
+    expect(messages.map((message: { body: string }) => message.body).join("\n")).toMatch(/Treuhand bestätigt[\s\S]*freigegeben[\s\S]*Auszahlung auf der Blockchain bestätigt/);
   });
 
-  it("verhindert, dass ein Tx-Hash zweimal verwendet wird", async () => {
-    const { api, seller, buyer, offer, tradeId } = await setupTrade();
-    await api.call("POST", `/api/trades/${tradeId}/paid`, { cookie: buyer.cookie });
-    const hash = "c".repeat(64);
-    api.chain.set(hash, { hash, address: buyer.wallet.baseAddress, lovelace: 40_000_000, timestamp: api.getNow().getTime() / 1000 });
-    await api.call("POST", `/api/trades/${tradeId}/release`, { cookie: seller.cookie, body: { txHash: hash } });
-
-    const second = await api.call("POST", `/api/offers/${offer.id}/trades`, {
-      cookie: buyer.cookie,
-      body: { amountType: "ada", amount: "80", paymentMethod: "WISE" },
-    });
-    await api.call("POST", `/api/trades/${second.body.tradeId}/paid`, { cookie: buyer.cookie });
-    const reuse = await api.call("POST", `/api/trades/${second.body.tradeId}/release`, { cookie: seller.cookie, body: { txHash: hash } });
-    expect(reuse.status).toBe(409);
-    expect(reuse.body.code).toBe("tx_reused");
-  });
-
-  it("gibt die Menge beim Abbruch zurück und bricht überfällige Trades automatisch ab", async () => {
+  it("Abbruch vor der Hinterlegung und abgelaufene Hinterlegungsfrist", async () => {
     const { api, seller, buyer, offer, tradeId } = await setupTrade();
     expect((await api.call("POST", `/api/trades/${tradeId}/cancel`, { cookie: buyer.cookie })).status).toBe(200);
-    expect((await api.call("GET", `/api/offers/${offer.id}`)).body.offer.availableLovelace).toBe(1_000_000_000);
+    expect((await api.call("GET", `/api/offers/${offer.id}`)).body.offer.availableLovelace).toBe(1_000 * ADA);
 
-    const next = await api.call("POST", `/api/offers/${offer.id}/trades`, {
-      cookie: buyer.cookie,
-      body: { amountType: "fiat", amount: "50", paymentMethod: "SEPA" },
-    });
-    api.setNow(new Date(api.getNow().getTime() + 31 * 60_000));
-    const detail = await api.call("GET", `/api/trades/${next.body.tradeId}`, { cookie: seller.cookie });
-    expect(detail.body.trade.actions).toEqual(["cancel"]);
-
-    const { expireOverdueTrades } = await import("../../server/trades");
+    const second = (
+      await api.call("POST", `/api/offers/${offer.id}/trades`, {
+        cookie: buyer.cookie,
+        body: { amountType: "fiat", amount: "50", paymentMethod: "SEPA" },
+      })
+    ).body.tradeId;
+    api.advance(60 + 10);
     expect(await expireOverdueTrades(api.ctx)).toBe(0); // Gnadenfrist läuft noch
-    api.setNow(new Date(api.getNow().getTime() + 15 * 60_000));
+    api.advance(10);
     expect(await expireOverdueTrades(api.ctx)).toBe(1);
-    expect((await api.call("GET", `/api/offers/${offer.id}`)).body.offer.availableLovelace).toBe(1_000_000_000);
+    expect(await view(api, buyer.cookie, second)).toMatchObject({ status: "cancelled", cancelReason: "escrow_expired" });
+    expect((await api.call("GET", `/api/users/${seller.user.id}`)).body.user.stats.cancelledTrades).toBe(1);
+    expect((await api.call("GET", `/api/offers/${offer.id}`)).body.offer.availableLovelace).toBe(1_000 * ADA);
+  });
 
-    const stats = (await api.call("GET", `/api/users/${buyer.user.id}`)).body.user.stats;
-    expect(stats).toMatchObject({ cancelledTrades: 2, completionRate: 0 });
+  it("Zahlungsfrist abgelaufen: Verkäufer holt die ADA aus der Treuhand zurück", async () => {
+    const { api, seller, buyer, tradeId } = await setupTrade();
+    await api.deposit(seller, tradeId);
+    api.advance(30 + 16);
+    expect(await expireOverdueTrades(api.ctx)).toBe(1);
+    const trade = await view(api, seller.cookie, tradeId);
+    expect(trade).toMatchObject({ status: "cancelled", cancelReason: "expired", actions: ["refund"], escrow: { status: "funded" } });
+
+    const before = api.ledger.balance(seller.wallet.baseAddress);
+    const refunded = await api.payout(seller, tradeId, "refund");
+    expect(refunded.status).toBe(200);
+    expect(api.ledger.balance(seller.wallet.baseAddress) - before).toBeGreaterThan(41.5 * ADA);
+    const after = (await api.call("POST", `/api/trades/${tradeId}/escrow/check`, { cookie: seller.cookie })).body.trade;
+    expect(after.escrow.status).toBe("refunded");
+    expect((await api.call("GET", `/api/users/${buyer.user.id}`)).body.user.stats.cancelledTrades).toBe(1);
+  });
+
+  it("verspätete Hinterlegung nach Abbruch kann zurückgeholt werden", async () => {
+    const { api, seller, buyer, tradeId } = await setupTrade();
+    const escrowAddress = (await view(api, seller.cookie, tradeId)).escrow.address;
+    await api.call("POST", `/api/trades/${tradeId}/cancel`, { cookie: buyer.cookie });
+    api.ledger.fund(escrowAddress, 42 * ADA); // z. B. manuell aus einer anderen Wallet gesendet
+    const trade = (await api.call("POST", `/api/trades/${tradeId}/escrow/check`, { cookie: seller.cookie })).body.trade;
+    expect(trade).toMatchObject({ status: "cancelled", escrow: { status: "funded" }, actions: ["refund"] });
+    expect((await api.payout(seller, tradeId, "refund")).status).toBe(200);
+  });
+
+  it("Unbeteiligte sehen nichts und können nichts auslösen", async () => {
+    const { api, seller, tradeId } = await setupTrade();
+    await api.deposit(seller, tradeId);
+    const stranger = await api.login("stranger");
+    expect(
+      (await api.call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, { cookie: stranger.cookie, body: { kind: "release" } })).status,
+    ).toBe(404);
+    expect((await api.call("POST", `/api/trades/${tradeId}/escrow/check`, { cookie: stranger.cookie })).status).toBe(404);
   });
 
   it("setzt Limits durch", async () => {
@@ -306,47 +377,109 @@ describe("Handelsablauf", () => {
   });
 });
 
-describe("Streitfälle", () => {
-  it("lässt Admins entscheiden und den Betrüger sperren", async () => {
+describe("Streitfälle mit Treuhand", () => {
+  async function disputedTrade() {
     const adminWallet = createTestWallet("admin");
-    const api = await createTestApi({ adminIdentities: new Set([adminWallet.rewardAddress]) });
-    const seller = await api.login("seller");
-    const buyer = await api.login("buyer");
+    const { api, seller, buyer, tradeId } = await setupTrade("20", { adminIdentities: new Set([adminWallet.rewardAddress]) });
     const admin = await api.login("admin", adminWallet);
     expect(admin.user.isAdmin).toBe(true);
-
-    const offer = (await api.call("POST", "/api/offers", { cookie: seller.cookie, body: sellOffer })).body.offer;
-    const tradeId = (
-      await api.call("POST", `/api/offers/${offer.id}/trades`, {
-        cookie: buyer.cookie,
-        body: { amountType: "fiat", amount: "20", paymentMethod: "SEPA" },
-      })
-    ).body.tradeId;
+    await api.deposit(seller, tradeId);
     await api.call("POST", `/api/trades/${tradeId}/paid`, { cookie: buyer.cookie });
-
     expect((await api.call("POST", `/api/trades/${tradeId}/dispute`, { cookie: buyer.cookie, body: { reason: "kurz" } })).status).toBe(400);
     expect(
-      (await api.call("POST", `/api/trades/${tradeId}/dispute`, { cookie: buyer.cookie, body: { reason: "Bezahlt, aber keine ADA erhalten." } })).status,
+      (
+        await api.call("POST", `/api/trades/${tradeId}/dispute`, {
+          cookie: buyer.cookie,
+          body: { reason: "Bezahlt, aber der Verkäufer gibt nicht frei." },
+        })
+      ).status,
     ).toBe(200);
+    return { api, seller, buyer, admin, tradeId };
+  }
 
+  it("Entscheidung für den Käufer: Käufer holt die ADA ab, Verkäufer wird gesperrt", async () => {
+    const { api, seller, buyer, admin, tradeId } = await disputedTrade();
     expect((await api.call("GET", "/api/admin/disputes", { cookie: seller.cookie })).status).toBe(403);
-    const disputes = await api.call("GET", "/api/admin/disputes", { cookie: admin.cookie });
-    expect(disputes.body.disputes).toHaveLength(1);
-
-    const adminView = await api.call("GET", `/api/trades/${tradeId}`, { cookie: admin.cookie });
-    expect(adminView.body.trade).toMatchObject({ role: "admin", actions: ["resolve"] });
-    await api.call("POST", `/api/trades/${tradeId}/messages`, { cookie: admin.cookie, body: { body: "Bitte Belege hochladen." } });
+    expect((await api.call("GET", "/api/admin/disputes", { cookie: admin.cookie })).body.disputes).toHaveLength(1);
+    expect(await view(api, admin.cookie, tradeId)).toMatchObject({ role: "admin", actions: ["resolve"] });
+    // Moderation allein kann keine Auszahlung auslösen
+    expect(
+      (await api.call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, { cookie: admin.cookie, body: { kind: "release" } })).status,
+    ).toBe(409);
 
     const resolved = await api.call("POST", `/api/admin/trades/${tradeId}/resolve`, {
       cookie: admin.cookie,
-      body: { outcome: "cancelled", fault: "seller", note: "Verkäufer hat nicht geliefert.", banFaultUser: true },
+      body: { outcome: "completed", fault: "seller", note: "Zahlung ist belegt, Verkäufer reagiert nicht.", banFaultUser: true },
     });
     expect(resolved.status).toBe(200);
-
-    const trade = (await api.call("GET", `/api/trades/${tradeId}`, { cookie: buyer.cookie })).body.trade;
-    expect(trade).toMatchObject({ status: "cancelled", cancelReason: "admin" });
+    expect((await view(api, buyer.cookie, tradeId)).actions).toEqual(["claim", "rate"]);
     expect((await api.call("GET", "/api/me", { cookie: seller.cookie })).body.user).toBeNull();
-    expect((await api.call("GET", "/api/offers?side=sell")).body.offers).toHaveLength(0);
-    expect((await api.call("GET", `/api/users/${seller.user.id}`)).status).toBe(404);
+
+    const before = api.ledger.balance(buyer.wallet.baseAddress);
+    const claimed = await api.payout(buyer, tradeId, "release");
+    expect(claimed.status).toBe(200);
+    expect(api.ledger.balance(buyer.wallet.baseAddress) - before).toBe(40 * ADA);
+    const trade = (await api.call("POST", `/api/trades/${tradeId}/escrow/check`, { cookie: buyer.cookie })).body.trade;
+    expect(trade).toMatchObject({ status: "completed", completionNote: "admin", escrow: { status: "released" } });
+  });
+
+  it("Entscheidung für den Verkäufer: Rückzahlung", async () => {
+    const { api, seller, admin, tradeId } = await disputedTrade();
+    await api.call("POST", `/api/admin/trades/${tradeId}/resolve`, {
+      cookie: admin.cookie,
+      body: { outcome: "cancelled", fault: "buyer", note: "Keine Zahlung eingegangen.", banFaultUser: false },
+    });
+    expect((await view(api, seller.cookie, tradeId)).actions).toEqual(["refund"]);
+    expect((await api.payout(seller, tradeId, "refund")).status).toBe(200);
+  });
+});
+
+describe("Alter Ablauf ohne Treuhand", () => {
+  it("bestehende Trades laufen mit Tx-Hash-Prüfung weiter", async () => {
+    const { api, seller, buyer, offer, tradeId } = await setupTrade();
+    const legacy = async (id: string) =>
+      api.pg.query(
+        "update trades set escrow = false, status = 'awaiting_payment', escrow_status = null, escrow_address = null where id = $1",
+        [id],
+      );
+    await legacy(tradeId);
+    expect(await view(api, buyer.cookie, tradeId)).toMatchObject({ escrow: null, actions: ["mark_paid", "cancel"] });
+    await api.call("POST", `/api/trades/${tradeId}/paid`, { cookie: buyer.cookie });
+
+    const short = api.ledger.fund(buyer.wallet.baseAddress, 39 * ADA);
+    let release = await api.call("POST", `/api/trades/${tradeId}/release`, { cookie: seller.cookie, body: { txHash: short } });
+    expect(release.body.verification.ok).toBe(false);
+    const paid = api.ledger.fund(buyer.wallet.baseAddress, 40 * ADA);
+    release = await api.call("POST", `/api/trades/${tradeId}/release`, { cookie: seller.cookie, body: { txHash: paid.toUpperCase() } });
+    expect(release.body.trade).toMatchObject({ status: "completed", completionNote: "onchain", txHash: paid });
+
+    const second = (
+      await api.call("POST", `/api/offers/${offer.id}/trades`, {
+        cookie: buyer.cookie,
+        body: { amountType: "ada", amount: "80", paymentMethod: "WISE" },
+      })
+    ).body.tradeId;
+    await legacy(second);
+    await api.call("POST", `/api/trades/${second}/paid`, { cookie: buyer.cookie });
+    const reuse = await api.call("POST", `/api/trades/${second}/release`, { cookie: seller.cookie, body: { txHash: paid } });
+    expect(reuse.body.code).toBe("tx_reused");
+  });
+});
+
+describe("Ohne Treuhand-Geheimnis", () => {
+  it("startet keine Trades und meldet es im Health-Check", async () => {
+    const api = await createTestApi({ arbiterSecret: null });
+    const seller = await api.login("seller");
+    const buyer = await api.login("buyer");
+    const offer = (await api.call("POST", "/api/offers", { cookie: seller.cookie, body: sellOffer })).body.offer;
+    const started = await api.call("POST", `/api/offers/${offer.id}/trades`, {
+      cookie: buyer.cookie,
+      body: { amountType: "fiat", amount: "20", paymentMethod: "SEPA" },
+    });
+    expect(started.status).toBe(503);
+    expect(started.body.code).toBe("escrow_not_configured");
+    const health = await api.call("GET", "/api/health");
+    expect(health.status).toBe(503);
+    expect(health.body).toMatchObject({ ok: false, escrow: false });
   });
 });

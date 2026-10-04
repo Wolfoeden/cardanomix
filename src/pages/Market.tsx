@@ -17,15 +17,15 @@ function Hero() {
           <p className="eyebrow">Cardano · Peer-to-Peer</p>
           <h1>ADA direkt von Mensch zu Mensch handeln</h1>
           <p className="lead">
-            Kaufe und verkaufe ADA gegen Euro, Franken, Dollar oder Pfund. Ohne Börsenkonto, ohne Verwahrung: Das Geld
-            geht direkt an dein Gegenüber, die ADA direkt in deine Wallet.
+            Kaufe und verkaufe ADA gegen Euro, Franken, Dollar oder Pfund – ohne Börsenkonto. Die ADA liegen während des
+            Handels in einer Treuhand auf der Blockchain, das Geld geht direkt an dein Gegenüber.
           </p>
           <ul className="hero-points">
             <li>
               <WalletIcon /> Anmeldung nur mit deiner Cardano-Wallet
             </li>
             <li>
-              <ChainIcon /> ADA-Zahlung wird auf der Blockchain geprüft
+              <ChainIcon /> ADA liegen vor der Zahlung in einer Treuhand auf der Blockchain
             </li>
             <li>
               <ShieldIcon /> Bewertungen, Limits für neue Konten und Moderation
@@ -203,8 +203,8 @@ export function MarketPage() {
 
         <p className="muted small market-hint">
           {side === "sell"
-            ? "Diese Händler verkaufen ADA. Du zahlst per Überweisung o. Ä. und erhältst die ADA direkt in deine Wallet."
-            : "Diese Händler kaufen ADA. Du sendest ADA aus deiner Wallet, sobald ihre Zahlung bei dir eingegangen ist."}
+            ? "Diese Händler verkaufen ADA. Sie legen die ADA zuerst in die Treuhand, dann zahlst du per Überweisung o. Ä."
+            : "Diese Händler kaufen ADA. Du legst die ADA in die Treuhand und gibst sie frei, sobald die Zahlung bei dir ist."}
         </p>
 
         {market.loading && !market.data ? (

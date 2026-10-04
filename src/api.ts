@@ -1,10 +1,12 @@
 import type { Fiat, OfferSide, OfferStatus, PaymentMethod } from "../shared/constants";
 import type {
   ConfigResponse,
+  DepositPreview,
   DisputeSummary,
   MarketStats,
   Me,
   Offer,
+  PayoutPreview,
   PricesResponse,
   ReleaseResponse,
   TradeDetailResponse,
@@ -107,6 +109,15 @@ export const api = {
   sendMessage: (id: string, body: string) => request<{ ok: true }>("POST", `/api/trades/${id}/messages`, { body }),
   rate: (id: string, positive: boolean, comment: string) =>
     request<{ ok: true }>("POST", `/api/trades/${id}/rating`, { positive, comment }),
+
+  checkEscrow: (id: string) => request<TradeDetailResponse>("POST", `/api/trades/${id}/escrow/check`, {}),
+  depositTx: (id: string, utxos: string[], changeAddress: string) =>
+    request<DepositPreview>("POST", `/api/trades/${id}/escrow/deposit-tx`, { utxos, changeAddress }),
+  submitDeposit: (id: string, tx: string, witnessSet: string) =>
+    request<{ txHash: string }>("POST", `/api/trades/${id}/escrow/deposit`, { tx, witnessSet }),
+  payoutTx: (id: string, kind: "release" | "refund") => request<PayoutPreview>("POST", `/api/trades/${id}/escrow/payout-tx`, { kind }),
+  submitPayout: (id: string, witnessSet: string) =>
+    request<{ txHash: string }>("POST", `/api/trades/${id}/escrow/payout`, { witnessSet }),
 
   disputes: () => request<{ disputes: DisputeSummary[] }>("GET", "/api/admin/disputes"),
   resolve: (
