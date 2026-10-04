@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Me } from "../shared/types";
 import { api, errorMessage } from "./api";
-import { Modal } from "./components/Ui";
+import { CopyButton, Modal } from "./components/Ui";
 import { useConfig } from "./hooks";
 import { enableWallet, lastWallet, listWallets, rememberWallet, utf8ToHex, walletErrorMessage, type WalletInfo } from "./wallet";
 
@@ -85,6 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+function isMobile(): boolean {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
 function WalletDialog({ onDone }: { onDone: (me: Me | null) => void }) {
   const config = useConfig();
   const [wallets, setWallets] = useState<WalletInfo[]>(() => listWallets());
@@ -144,7 +148,15 @@ function WalletDialog({ onDone }: { onDone: (me: Me | null) => void }) {
         Wähle deine Cardano-Wallet. Zur Anmeldung signierst du eine kurze Nachricht – dabei wird keine Transaktion
         ausgelöst und nichts bezahlt.
       </p>
-      {wallets.length === 0 ? (
+      {wallets.length === 0 && isMobile() ? (
+        <div className="notice notice-warn">
+          <p>
+            <strong>Auf dem Smartphone gibt es keine Browser-Erweiterungen.</strong> Öffne diese Seite im integrierten
+            Browser deiner Wallet-App – zum Beispiel Eternl, Vespr, Yoroi oder Begin – und melde dich dort an.
+          </p>
+          <CopyButton value={window.location.href} label="Link für die Wallet-App kopieren" />
+        </div>
+      ) : wallets.length === 0 ? (
         <div className="notice notice-warn">
           <strong>Keine Cardano-Wallet gefunden.</strong> Installiere eine Browser-Wallet wie{" "}
           <a href="https://eternl.io" target="_blank" rel="noreferrer">

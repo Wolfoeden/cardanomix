@@ -101,12 +101,41 @@ export function HowItWorksPage() {
         </div>
       </section>
 
+      <section className="section-tight">
+        <h2>Was CardanoMix absichert – und was nicht</h2>
+        <div className="two-col two-col-even">
+          <div className="card">
+            <h3 className="buy-text">Abgesichert</h3>
+            <ul className="tips">
+              <li>Anmeldung nur mit dem Schlüssel deiner Wallet – ohne Passwort, das gestohlen werden kann.</li>
+              <li>Die ADA-Zahlung wird auf der Blockchain geprüft: Betrag, Empfänger und Zeitpunkt müssen stimmen.</li>
+              <li>Jede Transaktion kann nur für einen Handel verwendet werden.</li>
+              <li>Zahlungsfristen, Abbruch und Rückgabe der reservierten Menge laufen automatisch.</li>
+            </ul>
+          </div>
+          <div className="card">
+            <h3 className="sell-text">Nicht abgesichert</h3>
+            <ul className="tips">
+              <li>
+                <strong>Keine Treuhand:</strong> Der Käufer zahlt zuerst. Liefert der Verkäufer nicht, kann die Moderation das
+                Konto sperren, aber kein Geld zurückholen.
+              </li>
+              <li>Rückbuchungen von Banküberweisungen trägt der Verkäufer.</li>
+              <li>Eine Wallet beweist Kontrolle über einen Schlüssel, nicht die Identität einer Person.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section className="card card-muted section-tight">
         <h2>Wichtige Regeln</h2>
         <ul className="tips">
           <li>Zahlungen nur von Konten auf den eigenen Namen. Zahlungen von Dritten sind verboten.</li>
           <li>Keine Kommunikation außerhalb des Handels-Chats – Betrüger versuchen, Gespräche auf Messenger zu verlagern.</li>
-          <li>PayPal nur mit „Freunde &amp; Familie“ nach Absprache; Rückbuchungen sind ein bekanntes Betrugsrisiko für Verkäufer.</li>
+          <li>
+            Verkäufer: Banküberweisungen lassen sich in Einzelfällen zurückholen. Sende ADA erst, wenn das Geld auf deinem
+            Konto gutgeschrieben ist, und handle anfangs nur kleine Beträge.
+          </li>
           <li>Blockchain-Transaktionen sind endgültig. Prüfe Adresse und Betrag vor dem Senden.</li>
         </ul>
         <Link to="/" className="btn btn-primary">

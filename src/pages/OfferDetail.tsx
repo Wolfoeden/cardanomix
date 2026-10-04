@@ -139,6 +139,13 @@ function TradeForm({ offer }: { offer: Offer }) {
           {error}
         </div>
       )}
+      <div className="notice notice-warn small">
+        <strong>Ohne Treuhand.</strong>{" "}
+        {youBuy
+          ? "Du zahlst zuerst, der Verkäufer sendet danach die ADA. Liefert er nicht, kann die Moderation das Konto sperren, aber dein Geld nicht zurückholen."
+          : "Der Käufer zahlt zuerst. Sende die ADA erst, wenn das Geld auf deinem Konto gutgeschrieben ist."}{" "}
+        Starte mit kleinen Beträgen.
+      </div>
       <button type="submit" className={`btn btn-lg btn-block ${youBuy ? "btn-buy" : "btn-sell"}`} disabled={busy || !amount.trim()}>
         {busy ? "Handel wird gestartet …" : me ? "Handel starten" : "Mit Wallet anmelden & starten"}
       </button>

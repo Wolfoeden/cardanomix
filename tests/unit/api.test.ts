@@ -122,7 +122,11 @@ describe("Angebote", () => {
     const market = await api.call("GET", "/api/offers?side=sell&fiat=EUR");
     expect(market.body.offers.map((offer: { priceMicro: number }) => offer.priceMicro)).toEqual([459_000, 500_000]);
     expect((await api.call("GET", "/api/offers?side=buy")).body.offers).toHaveLength(0);
-    expect((await api.call("GET", "/api/offers?side=sell&method=PAYPAL")).body.offers).toHaveLength(0);
+    expect((await api.call("GET", "/api/offers?side=sell&method=CASH")).body.offers).toHaveLength(0);
+    expect((await api.call("GET", "/api/offers?side=sell&method=PAYPAL")).status).toBe(400);
+    expect(
+      (await api.call("POST", "/api/offers", { cookie: maker.cookie, body: { ...sellOffer, paymentMethods: ["PAYPAL"] } })).status,
+    ).toBe(400);
     expect((await api.call("GET", "/api/offers?side=sell&amount=5")).body.offers).toHaveLength(0);
     expect((await api.call("GET", "/api/offers?side=sell&amount=100")).body.offers).toHaveLength(2);
 
@@ -261,7 +265,7 @@ describe("Handelsablauf", () => {
 
     const method = await api.call("POST", `/api/offers/${offer.id}/trades`, {
       cookie: third.cookie,
-      body: { amountType: "fiat", amount: "20", paymentMethod: "PAYPAL" },
+      body: { amountType: "fiat", amount: "20", paymentMethod: "CASH" },
     });
     expect(method.status).toBe(400);
 

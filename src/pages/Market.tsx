@@ -220,8 +220,8 @@ export function MarketPage() {
         ) : (
           <EmptyState title="Noch keine passenden Angebote">
             <p className="muted">
-              {fiat || method || amount ? "Probiere andere Filter oder " : ""}
-              stelle selbst ein Angebot ein – Händler finden dich dann hier.
+              {fiat || method || amount ? "Probiere andere Filter oder stelle" : "Stelle"} selbst ein Angebot ein – Händler
+              finden dich dann hier.
             </p>
             <Link to="/angebot/neu" className="btn btn-primary">
               <PlusIcon size={16} /> Angebot erstellen

@@ -8,16 +8,13 @@ export const FIAT_SYMBOL: Record<Fiat, string> = {
   GBP: "£",
 };
 
-export const PAYMENT_METHODS = [
-  "SEPA",
-  "SEPA_INSTANT",
-  "WISE",
-  "REVOLUT",
-  "PAYPAL",
-  "BANK_TRANSFER",
-  "CASH",
-] as const;
-export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+/**
+ * Zahlungsarten für neue Angebote und Trades. PayPal ist bewusst nicht dabei:
+ * Rückbuchungen sind ein Betrugsrisiko für Verkäufer, „Freunde & Familie“ hat keinen Käuferschutz.
+ */
+export const PAYMENT_METHODS = ["SEPA", "SEPA_INSTANT", "WISE", "REVOLUT", "BANK_TRANSFER", "CASH"] as const;
+/** Alle Zahlungsarten, die in gespeicherten Trades vorkommen können (inkl. abgeschaffter). */
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number] | "PAYPAL";
 
 export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
   SEPA: "SEPA-Überweisung",

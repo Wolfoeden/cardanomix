@@ -859,6 +859,27 @@ input[type="checkbox"] {
   color: var(--primary);
   flex: none;
 }
+@media (max-width: 719px) {
+  .hero {
+    padding: 24px 0 0;
+  }
+  .hero-inner {
+    gap: 18px;
+  }
+  .hero-points,
+  .price-cell:not(:first-child) {
+    display: none;
+  }
+  .hero-panel .price-grid {
+    grid-template-columns: 1fr;
+  }
+  .hero-panel {
+    padding: 14px;
+  }
+  .hero-panel-head {
+    margin-bottom: 10px;
+  }
+}
 .hero-panel {
   background: var(--surface);
   border: 1px solid var(--border);
