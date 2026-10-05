@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { EmptyState, ErrorNotice, formatDateTime, Spinner } from "../components/Ui";
 import { useDocumentTitle, useLoad } from "../hooks";
+import { MarketplaceAdmin } from "./MarketplaceAdmin";
 
 function Disputes() {
   const { data, error, loading, reload } = useLoad(() => api.disputes(), []);
@@ -44,6 +45,7 @@ export function AdminPage() {
         <>
           <p className="muted">Offene Streitfälle. Öffne einen Handel, um Chat und Details zu sehen und zu entscheiden.</p>
           <Disputes />
+          <MarketplaceAdmin />
         </>
       ) : (
         <div className="notice notice-warn">Dieser Bereich ist nur für Moderatoren.</div>

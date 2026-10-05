@@ -8,6 +8,9 @@ export interface AppConfig {
   adminIdentities: Set<string>;
   coingeckoKey?: string;
   koiosToken?: string;
+  feeAddress?: string;
+  supabaseUrl?: string;
+  supabaseSecret?: string;
 }
 
 export function readConfig(getEnv: (name: string) => string | undefined): AppConfig {
@@ -25,6 +28,9 @@ export function readConfig(getEnv: (name: string) => string | undefined): AppCon
     adminIdentities: new Set(admins),
     coingeckoKey: getEnv("COINGECKO_API_KEY")?.trim() || undefined,
     koiosToken: getEnv("KOIOS_API_TOKEN")?.trim() || undefined,
+    feeAddress: getEnv("PLATFORM_FEE_ADDRESS")?.trim() || undefined,
+    supabaseUrl: getEnv("SUPABASE_URL")?.trim() || undefined,
+    supabaseSecret: getEnv("SUPABASE_SECRET_KEY")?.trim() || undefined,
   };
 }
 

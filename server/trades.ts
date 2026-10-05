@@ -96,7 +96,7 @@ async function loadRatings(db: Queryable, tradeId: string): Promise<(Rating & { 
     created_at: Date | string;
   }>(
     `select r.rater_id, u.display_name as rater_name, r.positive, r.comment, r.created_at
-     from ratings r join users u on u.id = r.rater_id
+     from cardanomix.ratings r join cardanomix.users u on u.id = r.rater_id
      where r.trade_id = $1 order by r.created_at`,
     [tradeId],
   );
@@ -112,10 +112,10 @@ async function loadRatings(db: Queryable, tradeId: string): Promise<(Rating & { 
 async function buildTrade(ctx: AppContext, id: string, viewer: UserRow): Promise<Trade> {
   const { rows } = await ctx.db.query<TradeDetailRow>(
     `select t.*, b.display_name as buyer_name, s.display_name as seller_name, o.terms
-     from trades t
-       join users b on b.id = t.buyer_id
-       join users s on s.id = t.seller_id
-       join offers o on o.id = t.offer_id
+     from cardanomix.trades t
+       join cardanomix.users b on b.id = t.buyer_id
+       join cardanomix.users s on s.id = t.seller_id
+       join cardanomix.offers o on o.id = t.offer_id
      where t.id = $1`,
     [id],
   );
@@ -173,7 +173,7 @@ async function buildTrade(ctx: AppContext, id: string, viewer: UserRow): Promise
 
 async function loadMessages(db: Queryable, tradeId: string, afterId: number): Promise<TradeMessage[]> {
   const { rows } = await db.query<{ id: unknown; sender_id: string | null; body: string; created_at: Date | string }>(
-    "select id, sender_id, body, created_at from trade_messages where trade_id = $1 and id > $2 order by id limit 500",
+    "select id, sender_id, body, created_at from cardanomix.trade_messages where trade_id = $1 and id > $2 order by id limit 500",
     [tradeId, afterId],
   );
   return rows.map((row) => ({
@@ -211,19 +211,19 @@ export async function startTrade(
   }
   return ctx.db.transaction(async (tx) => {
     // Nutzerzeile sperren, damit parallele Starts das Limit offener Trades nicht umgehen.
-    await tx.query("select id from users where id = $1 for update", [taker.id]);
+    await tx.query("select id from cardanomix.users where id = $1 for update", [taker.id]);
     const offer = await loadOfferRow(tx, offerId, true);
     if (!offer || offer.status === "closed") throw notFound("Angebot nicht gefunden.");
     if (offer.status !== "active") throw conflict("Dieses Angebot ist pausiert.", "offer_paused");
     if (offer.user_id === taker.id) throw badRequest("Eigene Angebote können nicht gehandelt werden.", "own_offer");
     if (!offer.payment_methods.includes(input.paymentMethod)) throw badRequest("Diese Zahlungsart bietet der Anbieter nicht an.");
 
-    const { rows: makers } = await tx.query<UserRow>("select * from users where id = $1", [offer.user_id]);
+    const { rows: makers } = await tx.query<UserRow>("select * from cardanomix.users where id = $1", [offer.user_id]);
     const maker = makers[0];
     if (!maker || maker.is_banned) throw conflict("Dieses Angebot ist nicht mehr verfügbar.", "offer_unavailable");
 
     const { rows: open } = await tx.query<{ count: unknown }>(
-      "select count(*) as count from trades where taker_id = $1 and status = any($2::text[])",
+      "select count(*) as count from cardanomix.trades where taker_id = $1 and status = any($2::text[])",
       [taker.id, OPEN_STATUSES],
     );
     if (Number(open[0]?.count ?? 0) >= MAX_OPEN_TRADES_PER_TAKER) {
@@ -290,12 +290,12 @@ export async function startTrade(
     const escrowDeadline = new Date(now.getTime() + ESCROW_DEPOSIT_WINDOW_MIN * 60_000);
     const required = lovelace + ESCROW_FEE_BUFFER_LOVELACE;
 
-    await tx.query("update offers set available_lovelace = available_lovelace - $2, updated_at = now() where id = $1", [
+    await tx.query("update cardanomix.offers set available_lovelace = available_lovelace - $2, updated_at = now() where id = $1", [
       offer.id,
       lovelace,
     ]);
     await tx.query(
-      `insert into trades (id, offer_id, maker_id, taker_id, seller_id, buyer_id, fiat, price_micro, lovelace, fiat_cents,
+      `insert into cardanomix.trades (id, offer_id, maker_id, taker_id, seller_id, buyer_id, fiat, price_micro, lovelace, fiat_cents,
          payment_method, buyer_address, status, payment_deadline, payment_window_min, created_at, updated_at,
          escrow, seller_address, escrow_address, escrow_script, escrow_refund_slot, escrow_refund_after,
          escrow_required_lovelace, escrow_funded_lovelace, escrow_status, escrow_deadline)
@@ -340,7 +340,7 @@ export async function markPaid(ctx: AppContext, viewer: UserRow, tradeId: string
   await ctx.db.transaction(async (tx) => {
     const { trade, role } = await lockForAction(tx, ctx, tradeId, viewer);
     requireAction(trade, role, "mark_paid", ctx.now());
-    await tx.query("update trades set status = 'paid', paid_at = $2, updated_at = $2 where id = $1", [tradeId, ctx.now()]);
+    await tx.query("update cardanomix.trades set status = 'paid', paid_at = $2, updated_at = $2 where id = $1", [tradeId, ctx.now()]);
     await systemMessage(
       tx,
       tradeId,
@@ -359,7 +359,7 @@ export async function cancelTrade(ctx: AppContext, viewer: UserRow, tradeId: str
     const reason = role === "buyer" ? "buyer_cancelled" : beforeEscrow ? "seller_cancelled" : "expired";
     const fault = role === "seller" && beforeEscrow ? trade.seller_id : trade.buyer_id;
     await tx.query(
-      `update trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = $3, cancel_fault_user_id = $4
+      `update cardanomix.trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = $3, cancel_fault_user_id = $4
        where id = $1`,
       [tradeId, ctx.now(), reason, fault],
     );
@@ -380,7 +380,7 @@ export async function disputeTrade(ctx: AppContext, viewer: UserRow, tradeId: st
     const { trade, role } = await lockForAction(tx, ctx, tradeId, viewer);
     requireAction(trade, role, "dispute", ctx.now());
     await tx.query(
-      `update trades set status = 'disputed', disputed_at = $2, updated_at = $2, disputed_by = $3, dispute_reason = $4
+      `update cardanomix.trades set status = 'disputed', disputed_at = $2, updated_at = $2, disputed_by = $3, dispute_reason = $4
        where id = $1`,
       [tradeId, ctx.now(), viewer.id, reason],
     );
@@ -397,7 +397,7 @@ export async function confirmReceipt(ctx: AppContext, viewer: UserRow, tradeId: 
     const { trade, role } = await lockForAction(tx, ctx, tradeId, viewer);
     requireAction(trade, role, "confirm_receipt", ctx.now());
     await tx.query(
-      `update trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'buyer_confirmed'
+      `update cardanomix.trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'buyer_confirmed'
        where id = $1`,
       [tradeId, ctx.now()],
     );
@@ -418,7 +418,7 @@ export async function releaseTrade(ctx: AppContext, viewer: UserRow, tradeId: st
     requireAction(trade, role, "release", ctx.now());
     if (trade.tx_hash !== txHash) {
       try {
-        await tx.query("update trades set tx_hash = $2, updated_at = $3 where id = $1", [tradeId, txHash, ctx.now()]);
+        await tx.query("update cardanomix.trades set tx_hash = $2, updated_at = $3 where id = $1", [tradeId, txHash, ctx.now()]);
       } catch (error) {
         if (isUniqueViolation(error)) throw conflict("Diese Transaktion wurde bereits für einen anderen Handel verwendet.", "tx_reused");
         throw error;
@@ -441,7 +441,7 @@ export async function releaseTrade(ctx: AppContext, viewer: UserRow, tradeId: st
   if (result.ok) {
     await ctx.db.transaction(async (tx) => {
       const { rows } = await tx.query<{ id: string }>(
-        `update trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'onchain'
+        `update cardanomix.trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'onchain'
          where id = $1 and status in ('paid', 'disputed') and tx_hash = $3
          returning id`,
         [tradeId, ctx.now(), txHash],
@@ -463,7 +463,7 @@ export async function releaseTrade(ctx: AppContext, viewer: UserRow, tradeId: st
 export async function postMessage(ctx: AppContext, viewer: UserRow, tradeId: string, body: string): Promise<void> {
   const trade = await loadTradeRow(ctx.db, tradeId);
   if (!trade || !roleOf(ctx, trade, viewer)) throw notFound("Handel nicht gefunden.");
-  await ctx.db.query("insert into trade_messages (trade_id, sender_id, body) values ($1, $2, $3)", [tradeId, viewer.id, body]);
+  await ctx.db.query("insert into cardanomix.trade_messages (trade_id, sender_id, body) values ($1, $2, $3)", [tradeId, viewer.id, body]);
 }
 
 export async function rateTrade(
@@ -480,7 +480,7 @@ export async function rateTrade(
   const ratee = role === "buyer" ? trade.seller_id : trade.buyer_id;
   try {
     await ctx.db.query(
-      "insert into ratings (trade_id, rater_id, ratee_id, positive, comment) values ($1, $2, $3, $4, $5)",
+      "insert into cardanomix.ratings (trade_id, rater_id, ratee_id, positive, comment) values ($1, $2, $3, $4, $5)",
       [tradeId, viewer.id, ratee, input.positive, input.comment],
     );
   } catch (error) {
@@ -503,20 +503,20 @@ export async function resolveDispute(
     const faultUser = input.fault === "buyer" ? trade.buyer_id : input.fault === "seller" ? trade.seller_id : null;
     if (input.outcome === "completed") {
       await tx.query(
-        `update trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'admin' where id = $1`,
+        `update cardanomix.trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'admin' where id = $1`,
         [tradeId, ctx.now()],
       );
     } else {
       await tx.query(
-        `update trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'admin', cancel_fault_user_id = $3
+        `update cardanomix.trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'admin', cancel_fault_user_id = $3
          where id = $1`,
         [tradeId, ctx.now(), faultUser],
       );
       await restoreOffer(tx, trade);
     }
     if (input.banFaultUser && faultUser) {
-      await tx.query("update users set is_banned = true where id = $1", [faultUser]);
-      await tx.query("update offers set status = 'closed', updated_at = now() where user_id = $1 and status <> 'closed'", [faultUser]);
+      await tx.query("update cardanomix.users set is_banned = true where id = $1", [faultUser]);
+      await tx.query("update cardanomix.offers set status = 'closed', updated_at = now() where user_id = $1 and status <> 'closed'", [faultUser]);
     }
     let text = `Moderation hat entschieden: Handel ${input.outcome === "completed" ? "abgeschlossen" : "abgebrochen"}. Begründung: ${input.note}`;
     if (trade.escrow_status === "funded") {
@@ -532,7 +532,7 @@ export async function resolveDispute(
 export async function listMyTrades(ctx: AppContext, viewer: UserRow): Promise<TradeSummary[]> {
   const { rows } = await ctx.db.query<TradeRow & { buyer_name: string; seller_name: string }>(
     `select t.*, b.display_name as buyer_name, s.display_name as seller_name
-     from trades t join users b on b.id = t.buyer_id join users s on s.id = t.seller_id
+     from cardanomix.trades t join cardanomix.users b on b.id = t.buyer_id join cardanomix.users s on s.id = t.seller_id
      where t.buyer_id = $1 or t.seller_id = $1
      order by (t.status in ('awaiting_escrow', 'awaiting_payment', 'paid', 'disputed')) desc, t.updated_at desc
      limit 200`,
@@ -563,7 +563,7 @@ export async function listDisputes(ctx: AppContext, viewer: UserRow): Promise<Di
   if (!ctx.config.adminIdentities.has(viewer.identity)) throw forbidden();
   const { rows } = await ctx.db.query<TradeRow & { buyer_name: string; seller_name: string }>(
     `select t.*, b.display_name as buyer_name, s.display_name as seller_name
-     from trades t join users b on b.id = t.buyer_id join users s on s.id = t.seller_id
+     from cardanomix.trades t join cardanomix.users b on b.id = t.buyer_id join cardanomix.users s on s.id = t.seller_id
      where t.status = 'disputed' order by t.disputed_at`,
   );
   return rows.map((row) => ({
@@ -584,14 +584,14 @@ export async function listDisputes(ctx: AppContext, viewer: UserRow): Promise<Di
  */
 export async function expireOverdueTrades(ctx: AppContext): Promise<number> {
   const { rows: open } = await ctx.db.query<{ id: string }>(
-    "select id from trades where escrow and escrow_status in ('pending', 'releasing', 'refunding') and status <> 'cancelled' limit 200",
+    "select id from cardanomix.trades where escrow and escrow_status in ('pending', 'releasing', 'refunding') and status <> 'cancelled' limit 200",
   );
   for (const { id } of open) await syncEscrow(ctx, id, false);
 
   return ctx.db.transaction(async (tx) => {
     const cutoff = new Date(ctx.now().getTime() - AUTO_CANCEL_GRACE_MIN * 60_000);
     const { rows: unfunded } = await tx.query<TradeRow>(
-      `update trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'escrow_expired',
+      `update cardanomix.trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'escrow_expired',
          cancel_fault_user_id = seller_id
        where status = 'awaiting_escrow' and escrow_deadline < $1
        returning *`,
@@ -602,7 +602,7 @@ export async function expireOverdueTrades(ctx: AppContext): Promise<number> {
       await systemMessage(tx, trade.id, "Der Verkäufer hat die ADA nicht rechtzeitig hinterlegt. Der Handel wurde automatisch abgebrochen.");
     }
     const { rows: unpaid } = await tx.query<TradeRow>(
-      `update trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'expired',
+      `update cardanomix.trades set status = 'cancelled', cancelled_at = $2, updated_at = $2, cancel_reason = 'expired',
          cancel_fault_user_id = buyer_id
        where status = 'awaiting_payment' and payment_deadline < $1
        returning *`,

@@ -31,8 +31,8 @@ export async function createChallenge(ctx: AppContext, host: string): Promise<{ 
   const nonce = randomBytes(16).toString("hex");
   const now = ctx.now();
   const message = loginMessage(host, nonce, now);
-  await ctx.db.query("delete from auth_nonces where expires_at < $1", [now]);
-  await ctx.db.query("insert into auth_nonces (nonce, message, expires_at) values ($1, $2, $3)", [
+  await ctx.db.query("delete from cardanomix.auth_nonces where expires_at < $1", [now]);
+  await ctx.db.query("insert into cardanomix.auth_nonces (nonce, message, expires_at) values ($1, $2, $3)", [
     nonce,
     message,
     new Date(now.getTime() + NONCE_TTL_MINUTES * 60_000),
@@ -56,7 +56,7 @@ export async function login(ctx: AppContext, input: z.infer<typeof loginSchema>)
   }
 
   const { rows } = await ctx.db.query<{ message: string }>(
-    "delete from auth_nonces where nonce = $1 and expires_at > $2 returning message",
+    "delete from cardanomix.auth_nonces where nonce = $1 and expires_at > $2 returning message",
     [input.nonce, ctx.now()],
   );
   const message = rows[0]?.message;
@@ -104,7 +104,7 @@ export async function login(ctx: AppContext, input: z.infer<typeof loginSchema>)
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const { rows: users } = await ctx.db.query<UserRow>(
-        `insert into users (identity, receive_address, display_name)
+        `insert into cardanomix.users (identity, receive_address, display_name)
          values ($1, $2, $3)
          on conflict (identity) do update
            set receive_address = excluded.receive_address, last_login_at = now()

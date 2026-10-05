@@ -56,11 +56,11 @@ export interface TradeRow {
 export const OPEN_STATUSES: TradeStatus[] = ["awaiting_escrow", "awaiting_payment", "paid", "disputed"];
 
 export async function systemMessage(db: Queryable, tradeId: string, body: string): Promise<void> {
-  await db.query("insert into trade_messages (trade_id, sender_id, body) values ($1, null, $2)", [tradeId, body]);
+  await db.query("insert into cardanomix.trade_messages (trade_id, sender_id, body) values ($1, null, $2)", [tradeId, body]);
 }
 
 export async function loadTradeRow(db: Queryable, id: string, lock = false): Promise<TradeRow | null> {
-  const { rows } = await db.query<TradeRow>(`select * from trades where id = $1${lock ? " for update" : ""}`, [id]);
+  const { rows } = await db.query<TradeRow>(`select * from cardanomix.trades where id = $1${lock ? " for update" : ""}`, [id]);
   return rows[0] ?? null;
 }
 
@@ -139,7 +139,7 @@ export async function lockForAction(tx: Queryable, ctx: AppContext, tradeId: str
 }
 
 export async function restoreOffer(tx: Queryable, trade: TradeRow): Promise<void> {
-  await tx.query("update offers set available_lovelace = available_lovelace + $2, updated_at = now() where id = $1", [
+  await tx.query("update cardanomix.offers set available_lovelace = available_lovelace + $2, updated_at = now() where id = $1", [
     trade.offer_id,
     Number(trade.lovelace),
   ]);

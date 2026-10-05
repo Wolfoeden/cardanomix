@@ -7,6 +7,8 @@ import { useAuth } from "../auth";
 import { PlusIcon } from "../components/Icons";
 import { CopyButton, EmptyState, ErrorNotice, formatDateTime, Spinner, StatusBadge } from "../components/Ui";
 import { useDocumentTitle, useLoad } from "../hooks";
+import { ListingsTab, OrdersTab } from "./MarketplaceAccount";
+import { MessagesTab } from "./Messages";
 
 function TradesTab() {
   const { data, error, loading, reload } = useLoad(() => api.myTrades(), []);
@@ -203,6 +205,9 @@ function ProfileTab() {
 }
 
 const TABS = [
+  { key: "inserate", label: "Meine Inserate" },
+  { key: "bestellungen", label: "Bestellungen" },
+  { key: "nachrichten", label: "Nachrichten" },
   { key: "", label: "Meine Trades" },
   { key: "angebote", label: "Meine Angebote" },
   { key: "profil", label: "Profil & Wallet" },
@@ -246,7 +251,7 @@ export function AccountPage() {
           </button>
         ))}
       </div>
-      {tab === "angebote" ? <OffersTab created={params.get("neu") === "1"} /> : tab === "profil" ? <ProfileTab /> : <TradesTab />}
+      {tab === "inserate" ? <ListingsTab /> : tab === "bestellungen" ? <OrdersTab /> : tab === "nachrichten" ? <MessagesTab /> : tab === "angebote" ? <OffersTab created={params.get("neu") === "1"} /> : tab === "profil" ? <ProfileTab /> : <TradesTab />}
     </div>
   );
 }

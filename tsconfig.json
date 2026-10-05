@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "es2023",
-    "lib": [
-      "es2023",
-      "dom",
-      "dom.iterable"
-    ],
+    "lib": ["es2023", "dom", "dom.iterable"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -17,10 +13,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": [
-      "node",
-      "vite/client"
-    ],
+    "types": ["node", "vite/client"],
     "allowImportingTsExtensions": true
   },
   "include": [
@@ -30,6 +23,7 @@
     "dev",
     "netlify",
     "tests",
+    "scripts",
     "vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts"

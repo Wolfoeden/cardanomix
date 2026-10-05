@@ -12,6 +12,7 @@ import type { AppContext } from "../server/context.ts";
 export function devApiPlugin(): Plugin {
   let contextPromise: Promise<AppContext> | null = null;
   let ledger: import("./fake-ledger").FakeLedger | null = null;
+  let imageStorage: import("./image-storage").MemoryImageStorage | null = null;
 
   async function createContext(server: ViteDevServer): Promise<AppContext> {
     const { createPgliteDb } = (await server.ssrLoadModule("/dev/pglite.ts")) as typeof import("./pglite");
@@ -25,13 +26,21 @@ export function devApiPlugin(): Plugin {
     config.sessionSecret ??= "lokaler-entwicklungs-schluessel-nicht-produktiv";
     config.arbiterSecret ??= "lokaler-schlichter-schluessel-nicht-produktiv";
     if (process.env.CMX_FAKE_CHAIN) ledger = new FakeLedger(config.network);
-    return {
+    if (ledger) ledger.confirmationCount = 10;
+    const ctx: AppContext = {
       db,
       config,
       prices: process.env.CMX_FAKE_PRICES ? fakePriceSource() : createPriceSource({ coingeckoKey: config.coingeckoKey }),
       fetch: ledger ? ledger.fetch : fetch,
       now: () => new Date(),
     };
+    if (process.env.CMX_FAKE_STORAGE === "1") {
+      const { MemoryImageStorage } = await server.ssrLoadModule("/dev/image-storage.ts") as typeof import("./image-storage");
+      const { setImageStorage } = await server.ssrLoadModule("/server/marketplace/storage.ts") as typeof import("../server/marketplace/storage");
+      imageStorage = new MemoryImageStorage();
+      setImageStorage(ctx,imageStorage);
+    }
+    return ctx;
   }
 
   async function toRequest(req: IncomingMessage): Promise<Request> {
@@ -70,6 +79,18 @@ export function devApiPlugin(): Plugin {
         try {
           contextPromise ??= createContext(server);
           const ctx = await contextPromise;
+          if (path.startsWith("/__dev/storage/upload/") && imageStorage && req.method === "PUT") {
+            const token=path.split("/").pop()!,key=imageStorage.tokens.get(token);
+            if(!key) { await send(res,new Response("Invalid upload",{status:403}));return; }
+            const bytes=new Uint8Array(await (await toRequest(req)).arrayBuffer());
+            if(bytes.length>5242880) {await send(res,new Response("Too large",{status:413}));return;}
+            imageStorage.uploads.set(key,bytes);imageStorage.tokens.delete(token);
+            await send(res,Response.json({ok:true}));return;
+          }
+          if (path.startsWith("/__dev/storage/image/") && imageStorage) {
+            const bytes=imageStorage.images.get(decodeURIComponent(path.slice("/__dev/storage/image/".length)));
+            await send(res,new Response(bytes ? new Uint8Array(bytes) : null,{status:bytes?200:404,headers:{"content-type":"image/webp"}}));return;
+          }
           // Nur lokal: simulierte Blockchain für Tests und Entwicklung
           if (path === "/__dev/ledger/fund" && ledger && req.method === "POST") {
             const input = (await (await toRequest(req)).json()) as { address: string; lovelace: number };

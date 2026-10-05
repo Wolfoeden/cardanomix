@@ -20,7 +20,7 @@ const EMPTY_STATS: UserStats = {
 };
 
 export async function findUser(db: Queryable, id: string): Promise<UserRow | null> {
-  const { rows } = await db.query<UserRow>("select * from users where id = $1", [id]);
+  const { rows } = await db.query<UserRow>("select * from cardanomix.users where id = $1", [id]);
   return rows[0] ?? null;
 }
 
@@ -37,13 +37,13 @@ export async function loadStats(db: Queryable, ids: string[]): Promise<Map<strin
     negative: unknown;
   }>(
     `select u.id,
-       (select count(*) from trades t
+       (select count(*) from cardanomix.trades t
          where t.status = 'completed' and (t.seller_id = u.id or t.buyer_id = u.id)) as completed,
-       (select count(*) from trades t
+       (select count(*) from cardanomix.trades t
          where t.status = 'cancelled' and t.cancel_fault_user_id = u.id) as cancelled,
-       (select count(*) from ratings r where r.ratee_id = u.id and r.positive) as positive,
-       (select count(*) from ratings r where r.ratee_id = u.id and not r.positive) as negative
-     from users u
+       (select count(*) from cardanomix.ratings r where r.ratee_id = u.id and r.positive) as positive,
+       (select count(*) from cardanomix.ratings r where r.ratee_id = u.id and not r.positive) as negative
+     from cardanomix.users u
      where u.id = any($1::uuid[])`,
     [unique],
   );
@@ -82,7 +82,7 @@ export async function toMe(ctx: AppContext, row: UserRow): Promise<Me> {
 
 export async function completedTradeCount(db: Queryable, userId: string): Promise<number> {
   const { rows } = await db.query<{ count: unknown }>(
-    "select count(*) as count from trades where status = 'completed' and (seller_id = $1 or buyer_id = $1)",
+    "select count(*) as count from cardanomix.trades where status = 'completed' and (seller_id = $1 or buyer_id = $1)",
     [userId],
   );
   return Number(rows[0]?.count ?? 0);

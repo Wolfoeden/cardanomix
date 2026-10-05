@@ -33,7 +33,7 @@ const chains = new WeakMap<AppContext, Chain>();
 export function chainFor(ctx: AppContext): Chain {
   let chain = chains.get(ctx);
   if (!chain) {
-    chain = koiosChain({ network: ctx.config.network, token: ctx.config.koiosToken, fetch: ctx.fetch });
+    chain = koiosChain({ network: ctx.config.network, token: ctx.config.koiosToken, fetch: (input, init) => ctx.fetch(input, init) });
     chains.set(ctx, chain);
   }
   return chain;
@@ -70,7 +70,7 @@ export async function syncEscrow(ctx: AppContext, tradeId: string, force = false
   if (status !== "pending" && status !== "releasing" && status !== "refunding") return;
   const checkedAt = trade.escrow_checked_at ? new Date(trade.escrow_checked_at).getTime() : 0;
   if (!force && ctx.now().getTime() - checkedAt < SYNC_INTERVAL_MS) return;
-  await ctx.db.query("update trades set escrow_checked_at = $2 where id = $1", [tradeId, ctx.now()]);
+  await ctx.db.query("update cardanomix.trades set escrow_checked_at = $2 where id = $1", [tradeId, ctx.now()]);
 
   const chain = chainFor(ctx);
   try {
@@ -83,14 +83,14 @@ export async function syncEscrow(ctx: AppContext, tradeId: string, force = false
         if (!current || current.escrow_status !== "pending") return;
         if (funded < required) {
           if (funded !== Number(current.escrow_funded_lovelace ?? 0)) {
-            await tx.query("update trades set escrow_funded_lovelace = $2 where id = $1", [tradeId, funded]);
+            await tx.query("update cardanomix.trades set escrow_funded_lovelace = $2 where id = $1", [tradeId, funded]);
           }
           return;
         }
         if (current.status === "awaiting_escrow") {
           const deadline = new Date(ctx.now().getTime() + (current.payment_window_min ?? 30) * 60_000);
           await tx.query(
-            `update trades set status = 'awaiting_payment', escrow_status = 'funded', escrow_funded_lovelace = $2,
+            `update cardanomix.trades set status = 'awaiting_payment', escrow_status = 'funded', escrow_funded_lovelace = $2,
                payment_deadline = $3, updated_at = $4 where id = $1`,
             [tradeId, funded, deadline, ctx.now()],
           );
@@ -101,7 +101,7 @@ export async function syncEscrow(ctx: AppContext, tradeId: string, force = false
           );
         } else {
           // Hinterlegung kam erst nach dem Abbruch an – der Verkäufer kann sie zurückholen.
-          await tx.query("update trades set escrow_status = 'funded', escrow_funded_lovelace = $2, updated_at = $3 where id = $1", [
+          await tx.query("update cardanomix.trades set escrow_status = 'funded', escrow_funded_lovelace = $2, updated_at = $3 where id = $1", [
             tradeId,
             funded,
             ctx.now(),
@@ -117,7 +117,7 @@ export async function syncEscrow(ctx: AppContext, tradeId: string, force = false
     if (confirmations != null && confirmations > 0) {
       const done = status === "releasing" ? "released" : "refunded";
       const { rows } = await ctx.db.query<{ id: string }>(
-        "update trades set escrow_status = $2, updated_at = $3 where id = $1 and escrow_status = $4 returning id",
+        "update cardanomix.trades set escrow_status = $2, updated_at = $3 where id = $1 and escrow_status = $4 returning id",
         [tradeId, done, ctx.now(), status],
       );
       if (rows.length > 0) {
@@ -136,7 +136,7 @@ export async function syncEscrow(ctx: AppContext, tradeId: string, force = false
       const utxos = await chain.addressUtxos(trade.escrow_address);
       if (utxos.some((utxo) => !utxo.hasAssets)) {
         const { rows } = await ctx.db.query<{ id: string }>(
-          `update trades set escrow_status = 'funded', payout_tx_hash = null, payout_kind = null, updated_at = $2
+          `update cardanomix.trades set escrow_status = 'funded', payout_tx_hash = null, payout_kind = null, updated_at = $2
            where id = $1 and escrow_status = $3 returning id`,
           [tradeId, ctx.now(), status],
         );
@@ -201,7 +201,7 @@ export async function submitDeposit(
       minLovelace: MIN_DEPOSIT_LOVELACE,
     });
     const txHash = await chainFor(ctx).submit(signed.txBytes);
-    await ctx.db.query("update trades set escrow_deposit_tx = $2, updated_at = $3 where id = $1", [tradeId, txHash, ctx.now()]);
+    await ctx.db.query("update cardanomix.trades set escrow_deposit_tx = $2, updated_at = $3 where id = $1", [tradeId, txHash, ctx.now()]);
     await systemMessage(ctx.db, tradeId, `Der Verkäufer hat die Hinterlegung eingereicht (Tx ${txHash}). Die Bestätigung dauert meist 1–2 Minuten.`);
     return { txHash };
   } catch (error) {
@@ -258,7 +258,7 @@ export async function preparePayout(
     toHttp(error);
   }
   await ctx.db.query(
-    "update trades set pending_payout_tx = $2, pending_payout_kind = $3, pending_payout_signer = $4 where id = $1",
+    "update cardanomix.trades set pending_payout_tx = $2, pending_payout_kind = $3, pending_payout_signer = $4 where id = $1",
     [tradeId, preview.txHex, kind, viewer.id],
   );
   return preview;
@@ -294,7 +294,7 @@ export async function submitPayout(
     }
     // Erst Zustand festhalten, dann einreichen: Der Tx-Hash steht vorher fest.
     await tx.query(
-      `update trades set escrow_status = $2, payout_kind = $3, payout_tx_hash = $4, payout_submitted_at = $5,
+      `update cardanomix.trades set escrow_status = $2, payout_kind = $3, payout_tx_hash = $4, payout_submitted_at = $5,
          pending_payout_tx = null, pending_payout_kind = null, pending_payout_signer = null, updated_at = $5
        where id = $1`,
       [tradeId, kind === "release" ? "releasing" : "refunding", kind, signed.txHash, ctx.now()],
@@ -306,7 +306,7 @@ export async function submitPayout(
     await chainFor(ctx).submit(prepared.signed.txBytes);
   } catch (error) {
     await ctx.db.query(
-      `update trades set escrow_status = 'funded', payout_kind = null, payout_tx_hash = null, payout_submitted_at = null
+      `update cardanomix.trades set escrow_status = 'funded', payout_kind = null, payout_tx_hash = null, payout_submitted_at = null
        where id = $1 and payout_tx_hash = $2`,
       [tradeId, prepared.signed.txHash],
     );
@@ -317,7 +317,7 @@ export async function submitPayout(
     const { trade, kind, signed, action } = prepared;
     if (kind === "release" && ["awaiting_payment", "paid", "disputed"].includes(trade.status)) {
       await tx.query(
-        `update trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'escrow_release'
+        `update cardanomix.trades set status = 'completed', completed_at = $2, updated_at = $2, completion_note = 'escrow_release'
          where id = $1`,
         [tradeId, ctx.now()],
       );

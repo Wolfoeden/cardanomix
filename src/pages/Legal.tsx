@@ -44,6 +44,7 @@ export function LegalPage() {
   return (
     <div className="container section narrow prose">
       <h1>Rechtliches</h1>
+      <section id="marktplatz"><h2>Waren, digitale Produkte und Dienstleistungen</h2><p>Inserate sind kostenlos. Beim Kauf zahlt der Käufer zusätzlich zum Kaufpreis und den vereinbarten Versandkosten 1 ADA Plattformgebühr sowie die Cardano-Netzwerkgebühr. Kaufpreis und Plattformgebühr werden gemeinsam in einer Transaktion an die angezeigten Empfänger bezahlt.</p><p>Diese Käufe verwenden eine direkte Zahlung ohne Liefer-Treuhand. Eine bestätigte Blockchain-Zahlung beweist keine Lieferung oder Leistung. Verkäufer und Käufer vereinbaren Lieferung und gegebenenfalls eine separat signierte Rückzahlung. Die Plattformgebühr wird nicht automatisch erstattet.</p><p>Die nachfolgenden Treuhandhinweise betreffen den gesonderten ADA/Fiat-Handel. Verboten sind rechtswidrige Angebote sowie Angebote ohne erforderliche Rechte an Waren, Bildern oder digitalen Inhalten.</p><p>Angebotsbilder und Marktplatzdaten werden im Supabase-Projekt des Betreibers gespeichert. Lieferdaten und private Unterhaltungen sind nur für die Bestellparteien sichtbar. Bilder veröffentlichter Angebote können öffentlich angesehen werden.</p></section>
 
       <section id="risiken">
         <h2>Risikohinweis</h2>

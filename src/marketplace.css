@@ -1,0 +1,377 @@
+/* CardanoMix: a cobalt storefront with an open, image-led catalogue. */
+.marketplace {
+  --market-blue: #265ee9;
+  --market-ink: var(--text);
+}
+.market-intro {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 3rem;
+  padding: 1.5rem 0 2.5rem;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.market-eyebrow {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font: 600 0.72rem var(--mono);
+  color: var(--text-muted);
+  margin-bottom: 1.2rem;
+}
+.market-intro h1 {
+  font-family: "Bahnschrift", "Segoe UI", sans-serif;
+  font-weight: 650;
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+  letter-spacing: -0.05em;
+  line-height: 1.05;
+}
+.market-intro h1 span {
+  color: var(--primary);
+}
+.market-intro p {
+  max-width: 38rem;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  margin-bottom: 0;
+}
+.market-start {
+  justify-self: end;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 2rem;
+  border-left: 3px solid var(--primary);
+  max-width: 24rem;
+}
+.market-start small {
+  color: var(--text-muted);
+}
+.market-fee {
+  font-weight: 650;
+  font-size: 1.2rem;
+}
+.market-search {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  margin: 2rem 0 1.5rem;
+}
+.market-search .field {
+  flex: 1;
+}
+.market-search input {
+  padding: 1rem;
+}
+.market-search .btn {
+  min-height: 3.5rem;
+}
+.category-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+.category-strip button {
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 40px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.category-strip button.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+.market-filterbar {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1.4fr;
+  gap: 1rem;
+  padding: 1.2rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.market-results-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin: 2.5rem 0 1.2rem;
+}
+.market-results-heading h2 {
+  margin: 0;
+}
+.listing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.3rem;
+}
+.listing-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.listing-card:hover {
+  border-color: var(--primary);
+}
+.listing-photo {
+  display: block;
+  position: relative;
+  aspect-ratio: 4/3;
+  overflow: hidden;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.listing-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.listing-type {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.listing-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 12rem;
+  padding: 2rem;
+  color: var(--text-muted);
+  font:
+    600 1.4rem "Bahnschrift",
+    "Segoe UI",
+    sans-serif;
+  text-align: center;
+  background: var(--surface-2);
+}
+.listing-placeholder span {
+  display: block;
+  font: 400 0.8rem var(--font);
+  margin-top: 0.5rem;
+}
+.listing-card-body {
+  padding: 1.25rem;
+}
+.listing-card-body h2 {
+  font-size: 1.2rem;
+  min-height: 2.9rem;
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+.listing-card-body h2 a {
+  color: var(--text);
+  text-decoration: none;
+}
+.listing-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+.listing-card-bottom strong {
+  font:
+    650 1.3rem "Bahnschrift",
+    "Segoe UI",
+    sans-serif;
+}
+.market-trust {
+  margin-top: 2.5rem;
+  padding: 1.5rem 2rem;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.market-trust p {
+  margin: 0.4rem 0 0;
+  color: var(--text-muted);
+  max-width: 55rem;
+}
+.market-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+}
+.listing-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 2.5rem;
+  margin-top: 2rem;
+  align-items: start;
+}
+.listing-gallery {
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  aspect-ratio: 4/3;
+  margin-bottom: 1rem;
+  background: var(--surface-2);
+}
+.listing-gallery img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.listing-detail-price {
+  font:
+    650 2.3rem "Bahnschrift",
+    "Segoe UI",
+    sans-serif;
+  color: var(--primary);
+}
+.gallery-thumbs,
+.image-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.gallery-thumbs button {
+  padding: 0;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.gallery-thumbs button[aria-pressed="true"] {
+  border-color: var(--primary);
+}
+.gallery-thumbs img,
+.image-edit-grid img {
+  width: 100%;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+  display: block;
+  border-radius: 6px;
+}
+.image-edit-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.preserve-lines {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.market-messages {
+  max-height: 32rem;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 0.5rem;
+}
+.market-message {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  max-width: 90%;
+  align-self: flex-start;
+}
+.market-message.own {
+  background: var(--primary-soft);
+  align-self: flex-end;
+}
+.market-message p {
+  margin: 0.25rem 0 0.3rem;
+}
+.tabs-underline {
+  flex-wrap: wrap;
+}
+fieldset {
+  min-width: 0;
+}
+@media (max-width: 1000px) {
+  .listing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .header-inner {
+    flex-wrap: wrap;
+  }
+  .nav {
+    gap: 0.75rem;
+  }
+}
+@media (max-width: 700px) {
+  .market-intro,
+  .listing-detail-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .market-start {
+    justify-self: start;
+    padding: 1rem 1.3rem;
+  }
+  .market-filterbar,
+  .market-two {
+    grid-template-columns: 1fr 1fr;
+  }
+  .market-results-heading {
+    display: block;
+  }
+  .listing-grid {
+    gap: 0.8rem;
+  }
+  .listing-card-body {
+    padding: 0.85rem;
+  }
+  .listing-card-bottom {
+    flex-direction: column;
+  }
+  .market-intro h1 {
+    font-size: 2.8rem;
+  }
+  .listing-type {
+    left: 0.5rem;
+    bottom: 0.5rem;
+    font-size: 0.65rem;
+  }
+  .listing-card-body h2 {
+    font-size: 1rem;
+  }
+}
+@media (max-width: 430px) {
+  .market-filterbar,
+  .market-two {
+    grid-template-columns: 1fr;
+  }
+  .market-search {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .listing-grid {
+    grid-template-columns: 1fr;
+  }
+  .category-strip {
+    gap: 0.4rem;
+  }
+  .category-strip button {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+  }
+  .market-intro h1 {
+    font-size: 2.45rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .listing-card {
+    transition: none;
+  }
+}
