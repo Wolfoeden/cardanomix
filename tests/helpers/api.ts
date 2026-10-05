@@ -9,10 +9,14 @@ import { createTestWallet, utf8ToHex, type TestWallet } from "./wallet";
 export const ORIGIN = "https://p2p.example.test";
 export const ADA = 1_000_000;
 
-export async function createTestApi(overrides: Partial<AppConfig> = {}) {
-  const { db, pg } = await createPgliteDb();
+export async function createTestApi(
+  overrides: Partial<AppConfig> = {},
+  dataDir?: string,
+) {
+  const { db, pg } = await createPgliteDb(dataDir);
   let now = new Date("2026-10-01T12:00:00Z");
   const ledger = new FakeLedger("mainnet", () => now);
+  ledger.confirmationCount = 10;
   const ctx: AppContext = {
     db,
     config: {
@@ -35,26 +39,47 @@ export async function createTestApi(overrides: Partial<AppConfig> = {}) {
   ): Promise<{ status: number; body: T; setCookie: string | null }> {
     const headers = new Headers({ host: new URL(ORIGIN).host });
     if (options.cookie) headers.set("cookie", options.cookie);
-    if (method !== "GET" && options.origin !== null) headers.set("origin", options.origin ?? ORIGIN);
-    if (options.body !== undefined) headers.set("content-type", "application/json");
+    if (method !== "GET" && options.origin !== null)
+      headers.set("origin", options.origin ?? ORIGIN);
+    if (options.body !== undefined)
+      headers.set("content-type", "application/json");
     const response = await handle(
       new Request(`${ORIGIN}${path}`, {
         method,
         headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body:
+          options.body === undefined ? undefined : JSON.stringify(options.body),
       }),
     );
     const text = await response.text();
-    return { status: response.status, body: text ? JSON.parse(text) : null, setCookie: response.headers.get("set-cookie") };
+    return {
+      status: response.status,
+      body: text ? JSON.parse(text) : null,
+      setCookie: response.headers.get("set-cookie"),
+    };
   }
 
-  async function login(seed: string, wallet: TestWallet = createTestWallet(seed)) {
-    const challenge = await call<{ nonce: string; message: string }>("GET", "/api/auth/challenge");
-    const signed = wallet.signData(wallet.rewardAddressHex, utf8ToHex(challenge.body.message));
+  async function login(
+    seed: string,
+    wallet: TestWallet = createTestWallet(seed),
+  ) {
+    const challenge = await call<{ nonce: string; message: string }>(
+      "GET",
+      "/api/auth/challenge",
+    );
+    const signed = wallet.signData(
+      wallet.rewardAddressHex,
+      utf8ToHex(challenge.body.message),
+    );
     const result = await call("POST", "/api/auth/login", {
-      body: { nonce: challenge.body.nonce, ...signed, receiveAddress: wallet.baseAddressHex },
+      body: {
+        nonce: challenge.body.nonce,
+        ...signed,
+        receiveAddress: wallet.baseAddressHex,
+      },
     });
-    if (result.status !== 200) throw new Error(`Login fehlgeschlagen: ${JSON.stringify(result.body)}`);
+    if (result.status !== 200)
+      throw new Error(`Login fehlgeschlagen: ${JSON.stringify(result.body)}`);
     const cookie = result.setCookie!.split(";")[0];
     return { cookie, user: result.body.user, wallet };
   }
@@ -63,26 +88,51 @@ export async function createTestApi(overrides: Partial<AppConfig> = {}) {
 
   /** Verkäufer hinterlegt über den Wallet-Ablauf (UTxOs → Server baut → Wallet signiert → Server reicht ein). */
   async function deposit(seller: Party, tradeId: string) {
-    if (ledger.balance(seller.wallet.baseAddress) < 1_000 * ADA) ledger.fund(seller.wallet.baseAddress, 5_000 * ADA);
-    const prepared = await call("POST", `/api/trades/${tradeId}/escrow/deposit-tx`, {
-      cookie: seller.cookie,
-      body: {
-        utxos: ledger.utxosAt(seller.wallet.baseAddress).map((utxo) => utxo.outputHex),
-        changeAddress: seller.wallet.baseAddressHex,
+    if (ledger.balance(seller.wallet.baseAddress) < 1_000 * ADA)
+      ledger.fund(seller.wallet.baseAddress, 5_000 * ADA);
+    const prepared = await call(
+      "POST",
+      `/api/trades/${tradeId}/escrow/deposit-tx`,
+      {
+        cookie: seller.cookie,
+        body: {
+          utxos: ledger
+            .utxosAt(seller.wallet.baseAddress)
+            .map((utxo) => utxo.outputHex),
+          changeAddress: seller.wallet.baseAddressHex,
+        },
       },
-    });
+    );
     if (prepared.status !== 200) return prepared;
-    const submitted = await call("POST", `/api/trades/${tradeId}/escrow/deposit`, {
-      cookie: seller.cookie,
-      body: { tx: prepared.body.txHex, witnessSet: seller.wallet.signTx(prepared.body.txHex) },
-    });
+    const submitted = await call(
+      "POST",
+      `/api/trades/${tradeId}/escrow/deposit`,
+      {
+        cookie: seller.cookie,
+        body: {
+          tx: prepared.body.txHex,
+          witnessSet: seller.wallet.signTx(prepared.body.txHex),
+        },
+      },
+    );
     if (submitted.status !== 200) return submitted;
-    return call("POST", `/api/trades/${tradeId}/escrow/check`, { cookie: seller.cookie });
+    return call("POST", `/api/trades/${tradeId}/escrow/check`, {
+      cookie: seller.cookie,
+    });
   }
 
   /** Auszahlung: Server baut, Wallet signiert, Server signiert als Schlichter mit und reicht ein. */
-  async function payout(party: Party, tradeId: string, kind: "release" | "refund", signer: TestWallet = party.wallet) {
-    const prepared = await call("POST", `/api/trades/${tradeId}/escrow/payout-tx`, { cookie: party.cookie, body: { kind } });
+  async function payout(
+    party: Party,
+    tradeId: string,
+    kind: "release" | "refund",
+    signer: TestWallet = party.wallet,
+  ) {
+    const prepared = await call(
+      "POST",
+      `/api/trades/${tradeId}/escrow/payout-tx`,
+      { cookie: party.cookie, body: { kind } },
+    );
     if (prepared.status !== 200) return prepared;
     return call("POST", `/api/trades/${tradeId}/escrow/payout`, {
       cookie: party.cookie,

@@ -5,7 +5,7 @@ export class EscrowTxError extends Error {}
 
 const big = (value: number | string) => CSL.BigNum.from_str(String(value));
 
-function txBuilder(params: ProtocolParams): CSL.TransactionBuilder {
+export function txBuilder(params: ProtocolParams): CSL.TransactionBuilder {
   const config = CSL.TransactionBuilderConfigBuilder.new()
     .fee_algo(CSL.LinearFee.new(big(params.minFeeA), big(params.minFeeB)))
     .coins_per_utxo_byte(big(params.coinsPerUtxoByte))
@@ -36,7 +36,7 @@ export interface BuiltTx {
   fee: number;
 }
 
-function finish(tx: CSL.Transaction): BuiltTx {
+export function finish(tx: CSL.Transaction): BuiltTx {
   const txHex = tx.to_hex();
   return {
     txHex,
@@ -135,7 +135,7 @@ function parseAddress(value: string): CSL.Address {
 }
 
 /** Prüft Wallet-Signaturen gegen den Tx-Hash und gibt die gültigen Zeugen samt Schlüssel-Hash zurück. */
-function validWitnesses(fixed: CSL.FixedTransaction, witnessSetHex: string): { witness: CSL.Vkeywitness; keyHash: string }[] {
+export function validWitnesses(fixed: CSL.FixedTransaction, witnessSetHex: string): { witness: CSL.Vkeywitness; keyHash: string }[] {
   let witnessSet: CSL.TransactionWitnessSet;
   try {
     witnessSet = CSL.TransactionWitnessSet.from_hex(witnessSetHex);

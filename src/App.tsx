@@ -11,6 +11,11 @@ import { OfferDetailPage } from "./pages/OfferDetail";
 import { ProfilePage } from "./pages/Profile";
 import { TradeRoomPage } from "./pages/TradeRoom";
 import { useDocumentTitle } from "./hooks";
+import { MarketplacePage } from "./pages/Marketplace";
+import { ListingEditorPage } from "./pages/ListingEditor";
+import { ListingDetailPage } from "./pages/ListingDetail";
+import { OrderPage } from "./pages/Order";
+import { MessagesPage } from "./pages/Messages";
 
 function NotFoundPage() {
   useDocumentTitle("Nicht gefunden");
@@ -31,7 +36,13 @@ export function App() {
       <AuthProvider>
         <Layout>
           <Routes>
-            <Route path="/" element={<MarketPage />} />
+            <Route path="/" element={<MarketplacePage />} />
+            <Route path="/ada-handeln" element={<MarketPage />} />
+            <Route path="/marktplatz/angebot/neu" element={<ListingEditorPage />} />
+            <Route path="/marktplatz/angebot/:id" element={<ListingDetailPage />} />
+            <Route path="/marktplatz/angebot/:id/bearbeiten" element={<ListingEditorPage />} />
+            <Route path="/bestellung/:id" element={<OrderPage />} />
+            <Route path="/nachrichten/:id" element={<MessagesPage />} />
             <Route path="/angebot/neu" element={<CreateOfferPage />} />
             <Route path="/angebot/:id" element={<OfferDetailPage />} />
             <Route path="/handel/:id" element={<TradeRoomPage />} />

@@ -26,6 +26,7 @@ export default defineConfig({
       CMX_DB: "memory",
       CMX_FAKE_PRICES: "1",
       CMX_FAKE_CHAIN: "1",
+      CMX_FAKE_STORAGE: "1",
       ADMIN_STAKE_ADDRESSES: createTestWallet("e2e-admin").rewardAddress,
     },
   },

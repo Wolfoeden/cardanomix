@@ -70,6 +70,9 @@ function AccountMenu() {
           <Link to="/konto?tab=angebote" role="menuitem">
             Meine Angebote
           </Link>
+          <Link to="/konto?tab=inserate" role="menuitem">Meine Inserate</Link>
+          <Link to="/konto?tab=bestellungen" role="menuitem">Bestellungen</Link>
+          <Link to="/konto?tab=nachrichten" role="menuitem">Nachrichten</Link>
           <Link to="/konto?tab=profil" role="menuitem">
             Profil &amp; Wallet
           </Link>
@@ -117,7 +120,8 @@ export function Layout({ children }: { children: ReactNode }) {
             <NavLink to="/" end>
               Marktplatz
             </NavLink>
-            <NavLink to="/angebot/neu">Angebot erstellen</NavLink>
+            <NavLink to="/ada-handeln">ADA handeln</NavLink>
+            <NavLink to="/marktplatz/angebot/neu">Angebot erstellen</NavLink>
             <NavLink to="/so-funktionierts">So funktioniert’s</NavLink>
           </nav>
           <div className="header-actions">
@@ -148,8 +152,8 @@ export function Layout({ children }: { children: ReactNode }) {
               </span>
             </div>
             <p className="muted small">
-              Peer-to-Peer-Handel mit ADA. Die ADA liegen während des Handels in einer Treuhand auf der Blockchain, die
-              CardanoMix allein nicht bewegen kann; Geld fließt direkt zwischen den Handelspartnern.
+              Waren, digitale Produkte und Dienstleistungen mit ADA bezahlen. Kaufpreis direkt an den Anbieter,
+              1 ADA Plattformgebühr pro Kauf. Für den ADA/Fiat-Handel gibt es einen eigenen Treuhandablauf.
             </p>
           </div>
           <nav className="footer-links" aria-label="Fußzeile">

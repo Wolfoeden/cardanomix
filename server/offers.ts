@@ -42,7 +42,7 @@ export interface OfferRow {
 
 const OFFER_SELECT = `
   select o.*, u.display_name as maker_name, u.created_at as maker_created_at
-  from offers o join users u on u.id = o.user_id`;
+  from cardanomix.offers o join cardanomix.users u on u.id = o.user_id`;
 
 export const createOfferSchema = z
   .object({
@@ -191,16 +191,16 @@ export async function createOffer(ctx: AppContext, user: UserRow, input: z.infer
 
   const id = await ctx.db.transaction(async (tx) => {
     // Sperrt die Nutzerzeile, damit parallele Anfragen das Limit nicht umgehen.
-    await tx.query("select id from users where id = $1 for update", [user.id]);
+    await tx.query("select id from cardanomix.users where id = $1 for update", [user.id]);
     const { rows } = await tx.query<{ count: unknown }>(
-      "select count(*) as count from offers where user_id = $1 and status <> 'closed'",
+      "select count(*) as count from cardanomix.offers where user_id = $1 and status <> 'closed'",
       [user.id],
     );
     if (Number(rows[0]?.count ?? 0) >= MAX_ACTIVE_OFFERS) {
       throw conflict(`Höchstens ${MAX_ACTIVE_OFFERS} offene Angebote pro Konto.`, "too_many_offers");
     }
     const { rows: inserted } = await tx.query<{ id: string }>(
-      `insert into offers (user_id, side, fiat, price_type, fixed_price_micro, margin_bps, available_lovelace,
+      `insert into cardanomix.offers (user_id, side, fiat, price_type, fixed_price_micro, margin_bps, available_lovelace,
          min_fiat_cents, max_fiat_cents, payment_methods, terms, payment_window_min)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        returning id`,
@@ -226,7 +226,7 @@ export async function createOffer(ctx: AppContext, user: UserRow, input: z.infer
 
 export async function setOfferStatus(ctx: AppContext, user: UserRow, offerId: string, status: OfferStatus): Promise<void> {
   const { rows } = await ctx.db.query<{ id: string }>(
-    `update offers set status = $3, updated_at = now()
+    `update cardanomix.offers set status = $3, updated_at = now()
      where id = $1 and user_id = $2 and status <> 'closed'
      returning id`,
     [offerId, user.id, status],

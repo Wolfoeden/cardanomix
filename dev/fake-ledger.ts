@@ -25,6 +25,7 @@ export class FakeLedger {
   private utxos = new Map<string, LedgerUtxo>();
   private confirmed = new Map<string, { outputs: { address: string; lovelace: number }[]; timestamp: number }>();
   readonly submitted: string[] = [];
+  confirmationCount = 1;
 
   constructor(
     readonly network: CardanoNetwork = "mainnet",
@@ -177,6 +178,7 @@ export class FakeLedger {
           txFeePerByte: DEFAULT_PROTOCOL_PARAMS.minFeeA,
           txFeeFixed: DEFAULT_PROTOCOL_PARAMS.minFeeB,
           utxoCostPerByte: DEFAULT_PROTOCOL_PARAMS.coinsPerUtxoByte,
+          maxTxSize: DEFAULT_PROTOCOL_PARAMS.maxTxSize, maxValueSize: DEFAULT_PROTOCOL_PARAMS.maxValueSize, stakeAddressDeposit: DEFAULT_PROTOCOL_PARAMS.keyDeposit, stakePoolDeposit: DEFAULT_PROTOCOL_PARAMS.poolDeposit,
         });
       case "/submittx":
         try {
@@ -186,8 +188,10 @@ export class FakeLedger {
         }
       case "/tx_status":
         return json(
-          (body()._tx_hashes ?? []).map((hash) => ({ tx_hash: hash, num_confirmations: this.confirmed.has(hash) ? 1 : null })),
+          (body()._tx_hashes ?? []).map((hash) => ({ tx_hash: hash, num_confirmations: this.confirmed.has(hash) ? this.confirmationCount : null })),
         );
+      case "/tip":
+        return json([{abs_slot:slotAt(this.network,this.now()),block_time:Math.floor(this.now().getTime()/1000)}]);
       case "/tx_info":
         return json(
           (body()._tx_hashes ?? []).flatMap((hash) => {

@@ -5,6 +5,10 @@
 [build.environment]
   NODE_VERSION = "22"
 
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["sharp", "@emurgo/cardano-serialization-lib-nodejs"]
+
 # Single-Page-App: alle Seiten liefern index.html aus (API läuft über die Function unter /api/*).
 [[redirects]]
   from = "/*"
